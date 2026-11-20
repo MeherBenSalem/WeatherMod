@@ -1,0 +1,140 @@
+plugins {
+    id 'fabric-loom' version '1.7.4'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+repositories {
+    // Mod Menu (optional, compile-only integration)
+    maven {
+        name = 'TerraformersMC'
+        url = 'https://maven.terraformersmc.com/releases/'
+        content { includeGroup 'com.terraformersmc' }
+    }
+    // Only used for the optional compatibility smoke tests (-PlwCompat=...).
+    maven {
+        name = 'Modrinth'
+        url = 'https://api.modrinth.com/maven'
+        content { includeGroup 'maven.modrinth' }
+    }
+}
+
+sourceSets {
+    // Stand-alone procedural texture generator (plain Java, no Minecraft on the classpath).
+    assetgen {
+        java { srcDir 'src/assetgen/java' }
+    }
+}
+
+loom {
+    // Client-only code lives in src/client and can never be referenced from src/main,
+    // which is what guarantees that a dedicated server never loads rendering classes.
+    splitEnvironmentSourceSets()
+
+    accessWidenerPath = file('src/main/resources/livingworld.accesswidener')
+
+    mods {
+        livingworld {
+            sourceSet sourceSets.main
+            sourceSet sourceSets.client
+        }
+    }
+
+    runs {
+        client {
+            vmArgs '-Xmx3G'
+        }
+        // `gradlew runAutotest` boots a client, creates a throw-away world, walks through the
+        // scripted scenario list, writes screenshots + a report to run/livingworld-autotest and exits.
+        autotest {
+            client()
+            name 'Living World autotest'
+            vmArgs '-Xmx3G', '-Dlivingworld.autotest=true'
+            // Run a subset of scenes with e.g. `gradlew runAutotest -PlwScenes=desert,snow`.
+            if (project.hasProperty('lwScenes')) {
+                vmArg "-Dlivingworld.autotest.only=${project.property('lwScenes')}"
+            }
+            runDir 'run'
+        }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+    modClientCompileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
+
+    // Compatibility smoke tests: `gradlew runAutotest -PlwCompat=sodium` or `-PlwCompat=sodium,iris`
+    // adds those mods to the dev client only. They are never bundled or required.
+    if (project.hasProperty('lwCompat')) {
+        def compat = project.property('lwCompat').toString()
+        modLocalRuntime "maven.modrinth:sodium:${project.sodium_version}"
+        if (compat.contains('iris')) {
+            modLocalRuntime "maven.modrinth:iris:${project.iris_version}"
+        }
+    }
+
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// Unit tests cover the pure simulation code (climate maths, wind field, decal store, audio synth),
+// some of which lives in the client source set.
+sourceSets {
+    test {
+        compileClasspath += sourceSets.client.output + sourceSets.client.compileClasspath
+        runtimeClasspath += sourceSets.client.output + sourceSets.client.runtimeClasspath
+    }
+}
+
+test {
+    useJUnitPlatform()
+    testLogging {
+        events 'failed', 'skipped'
+        exceptionFormat 'full'
+        showStandardStreams = false
+    }
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') {
+        expand 'version': project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 17
+    it.options.encoding = 'UTF-8'
+}
+
+java {
+    withSourcesJar()
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+jar {
+    from('LICENSE') {
+        rename { "${it}_${project.base.archivesName.get()}" }
+    }
+}
+
+// Regenerates every texture in src/client/resources/assets/livingworld/textures from code.
+// The generated PNGs are checked in, so a normal build does not need to run this.
+tasks.register('generateAssets', JavaExec) {
+    group = 'livingworld'
+    description = 'Regenerates the procedural textures.'
+    classpath = sourceSets.assetgen.runtimeClasspath
+    mainClass = 'dev.livingworld.assetgen.AssetGen'
+    args file('src/client/resources/assets/livingworld/textures').absolutePath
+}

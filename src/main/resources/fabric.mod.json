@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "livingworld",
+  "version": "${version}",
+  "name": "Living World",
+  "description": "An environmental realism engine: climate, wind, layered weather, footprints, atmosphere and procedural ambience that make every biome feel alive.",
+  "authors": ["Living World contributors"],
+  "license": "MIT",
+  "icon": "assets/livingworld/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["dev.livingworld.LivingWorld"],
+    "client": ["dev.livingworld.client.LivingWorldClient"],
+    "modmenu": ["dev.livingworld.client.compat.ModMenuIntegration"]
+  },
+  "mixins": [
+    {
+      "config": "livingworld.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "accessWidener": "livingworld.accesswidener",
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "minecraft": "~1.20.1",
+    "java": ">=17",
+    "fabric-api": "*"
+  },
+  "suggests": {
+    "modmenu": "*"
+  }
+}

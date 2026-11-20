@@ -1,0 +1,17 @@
+{
+  "ambient_bed": {
+    "sounds": [
+      { "name": "fabric-sound-api-v1:empty", "stream": true }
+    ]
+  },
+  "weather_bed": {
+    "sounds": [
+      { "name": "fabric-sound-api-v1:empty", "stream": true }
+    ]
+  },
+  "one_shot": {
+    "sounds": [
+      { "name": "fabric-sound-api-v1:empty", "stream": true }
+    ]
+  }
+}

@@ -1,0 +1,20 @@
+{
+    "blend": {
+        "func": "add",
+        "srcrgb": "one",
+        "dstrgb": "zero"
+    },
+    "vertex": "livingworld:post",
+    "fragment": "livingworld:bloom",
+    "attributes": [
+        "Position",
+        "UV0"
+    ],
+    "samplers": [
+        { "name": "DiffuseSampler" }
+    ],
+    "uniforms": [
+        { "name": "Step", "type": "float", "count": 2, "values": [ 0.001, 0.001 ] },
+        { "name": "Mode", "type": "float", "count": 2, "values": [ 0.0, 0.72 ] }
+    ]
+}

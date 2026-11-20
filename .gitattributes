@@ -1,0 +1,8 @@
+* text=auto
+
+# The Unix wrapper script must keep LF endings to run; the Windows one needs CRLF.
+gradlew text eol=lf
+*.bat text eol=crlf
+
+*.png binary
+*.jar binary
