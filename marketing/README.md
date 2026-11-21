@@ -7,7 +7,7 @@ Listing copy and artwork for CurseForge and Modrinth. Nothing here ships in the 
 | `curseforge/description.md` | The project description (Markdown; also works on Modrinth). Images load from this repo's `main` branch. |
 | `curseforge/summary.txt` | The one-line summary (208 characters; the limit is 250). |
 | `images/banner.png` | 1800×600 header banner. |
-| `images/icon.png` | 512×512 project icon: the mod's in-jar icon (`src/main/resources/assets/livingworld/icon.png`, 128×128) redrawn at listing size. |
+| `images/icon.png` | 512×512 project icon: the mod's in-jar icon (`common/src/main/resources/assets/livingworld/icon.png`, 128×128) redrawn at listing size. |
 | `images/card-*.png` | 1600×900 feature cards used in the description and as gallery images. |
 | `images/header-*.png`, `images/divider.png` | Transparent section headers (1400×120) and a divider (1400×44) for the description. |
 | `images/screenshots/*.jpg` | Real in-game captures, 1920×1080, used by the cards and the gallery. |
@@ -52,13 +52,13 @@ there, plus the platform line in `description.md`.
 ## Retaking the screenshots and clips
 
 ```bash
-./gradlew runAutotest -PlwScenes=marketing     # everything, about twenty minutes
-./gradlew runAutotest -PlwScenes=mk_water,mk_sky    # or a few groups
+./gradlew :fabric:runAutotest -PlwScenes=marketing     # everything, about twenty minutes
+./gradlew :fabric:runAutotest -PlwScenes=mk_water,mk_sky    # or a few groups
 python marketing/source/collect.py             # PNG -> JPEG, frame runs -> GIF (needs Pillow)
 node marketing/source/render.cjs
 ```
 
-The capture run is the mod's own scripted test client (`src/client/java/dev/livingworld/client/debug/Marketing.java`):
+The capture run is the mod's own scripted test client (`common/src/main/java/dev/livingworld/client/debug/Marketing.java`):
 a dev client on the vanilla renderer, a new world with the test seed `8765432123456`, the **Ultra** preset, render
 distance 14, HUD hidden, in a borderless 1920×1080 window. The window is placed just past the right edge of the
 primary monitor so that it neither covers the screen nor takes clicks; add

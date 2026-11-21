@@ -1,0 +1,86 @@
+plugins {
+    id 'multiloader-loader'
+    id 'net.neoforged.moddev.legacyforge'
+}
+
+mixin {
+    add(sourceSets.main, "${mod_id}.refmap.json")
+
+    config("${mod_id}.mixins.json")
+    config("${mod_id}.client.mixins.json")
+    config("${mod_id}.embeddium.mixins.json")
+}
+
+legacyForge {
+    version = "${minecraft_version}-${forge_version}"
+
+    validateAccessTransformers = true
+
+    def at = project(':common').file('src/main/resources/META-INF/accesstransformer.cfg')
+    if (at.exists()) {
+        accessTransformers = ['src/main/resources/META-INF/accesstransformer.cfg']
+    }
+    parchment {
+        minecraftVersion = parchment_minecraft
+        mappingsVersion = parchment_version
+    }
+    runs {
+        client {
+            client()
+            jvmArgument '-Xmx3G'
+        }
+        server {
+            server()
+        }
+        // `gradlew :forge:runAutotest` is the Forge twin of `:fabric:runAutotest`: it boots a client, walks
+        // through the scripted scenes, writes screenshots + a report to forge/run/livingworld-autotest and exits.
+        autotest {
+            client()
+            jvmArgument '-Xmx3G'
+            systemProperty 'livingworld.autotest', 'true'
+            // Run a subset of scenes with e.g. `gradlew :forge:runAutotest -PlwScenes=desert,snow`.
+            if (project.hasProperty('lwScenes')) {
+                systemProperty 'livingworld.autotest.only', project.property('lwScenes').toString()
+            }
+        }
+    }
+
+    mods {
+        "${mod_id}" {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+dependencies {
+    annotationProcessor('org.spongepowered:mixin:0.8.5-SNAPSHOT:processor')
+
+    // Embeddium (the port of Sodium that Forge players use) is compiled against, never bundled and never
+    // required, so that the mod can teach its terrain shaders the same things it teaches Sodium's on
+    // Fabric: water, vegetation sway and seasonal colours. See dev.livingworld.forge.compat.embeddium.
+    modCompileOnly "maven.modrinth:embeddium:${embeddium_version}"
+
+    // Compatibility smoke tests: `gradlew :forge:runAutotest -PlwCompat=embeddium` or
+    // `-PlwCompat=embeddium,oculus` adds those mods to the dev client only.
+    if (project.hasProperty('lwCompat')) {
+        def compat = project.property('lwCompat').toString()
+        modRuntimeOnly "maven.modrinth:embeddium:${embeddium_version}"
+        if (compat.contains('oculus')) {
+            modRuntimeOnly "maven.modrinth:oculus:${oculus_version}"
+        }
+    }
+}
+
+processResources {
+    // Forge shows the logo from the root of the jar; it is the same picture Fabric uses as the mod icon.
+    from(project(':common').file("src/main/resources/assets/${mod_id}/icon.png")) {
+        rename { "${mod_id}.png" }
+    }
+}
+
+jar {
+    finalizedBy('reobfJar')
+    manifest.attributes([
+            'MixinConfigs': "${mod_id}.mixins.json,${mod_id}.client.mixins.json,${mod_id}.embeddium.mixins.json"
+    ])
+}

@@ -1,0 +1,71 @@
+plugins {
+    id 'multiloader-common'
+    id 'net.neoforged.moddev.legacyforge'
+}
+
+// Vanilla Minecraft with official names and no mod loader: nothing in here can depend on Fabric or Forge.
+legacyForge {
+    mcpVersion = minecraft_version
+    if (file('src/main/resources/META-INF/accesstransformer.cfg').exists()) {
+        accessTransformers = ['src/main/resources/META-INF/accesstransformer.cfg']
+    }
+    parchment {
+        minecraftVersion = parchment_minecraft
+        mappingsVersion = parchment_version
+    }
+}
+
+sourceSets {
+    // Stand-alone procedural texture generator (plain Java, no Minecraft on the classpath).
+    assetgen {
+        java { srcDir 'src/assetgen/java' }
+    }
+}
+
+// The unit tests exercise code that uses Minecraft's own classes (packet buffers, maths).
+legacyForge.addModdingDependenciesTo(sourceSets.test)
+
+dependencies {
+    compileOnly group: 'org.spongepowered', name: 'mixin', version: '0.8.5'
+    implementation group: 'com.google.code.findbugs', name: 'jsr305', version: '3.0.1'
+
+    // Unit tests cover the pure simulation code: climate maths, wind field, decal store, audio synth.
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+    testLogging {
+        events 'failed', 'skipped'
+        exceptionFormat 'full'
+        showStandardStreams = false
+    }
+}
+
+configurations {
+    commonJava {
+        canBeResolved = false
+        canBeConsumed = true
+    }
+    commonResources {
+        canBeResolved = false
+        canBeConsumed = true
+    }
+}
+
+artifacts {
+    commonJava sourceSets.main.java.sourceDirectories.singleFile
+    commonResources sourceSets.main.resources.sourceDirectories.singleFile
+}
+
+// Regenerates every texture in src/main/resources/assets/livingworld/textures from code.
+// The generated PNGs are checked in, so a normal build does not need to run this.
+tasks.register('generateAssets', JavaExec) {
+    group = 'livingworld'
+    description = 'Regenerates the procedural textures.'
+    classpath = sourceSets.assetgen.runtimeClasspath
+    mainClass = 'dev.livingworld.assetgen.AssetGen'
+    args file('src/main/resources/assets/livingworld/textures').absolutePath
+}

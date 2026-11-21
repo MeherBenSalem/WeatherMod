@@ -1,0 +1,191 @@
+// Shared by every module (common and each loader): Java toolchain, repositories, jar contents and the
+// expansion of the properties in gradle.properties into the mod metadata files.
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+}
+
+base {
+    archivesName = "${mod_id}-${project.name}-${minecraft_version}"
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(java_version)
+    withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.encoding = 'UTF-8'
+    it.options.release = java_version as Integer
+}
+
+repositories {
+    mavenCentral()
+    // https://docs.gradle.org/current/userguide/declaring_repositories.html#declaring_content_exclusively_found_in_one_repository
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'Sponge'
+                url = 'https://repo.spongepowered.org/repository/maven-public'
+            }
+        }
+        filter { includeGroupAndSubgroups('org.spongepowered') }
+    }
+    exclusiveContent {
+        forRepositories(
+                maven {
+                    name = 'ParchmentMC'
+                    url = 'https://maven.parchmentmc.org/'
+                },
+                maven {
+                    name = 'NeoForge'
+                    url = 'https://maven.neoforged.net/releases'
+                }
+        )
+        filter { includeGroup('org.parchmentmc.data') }
+    }
+    // Optional integrations: Mod Menu (Fabric), and Sodium / Iris / Embeddium / Oculus from Modrinth.
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'TerraformersMC'
+                url = 'https://maven.terraformersmc.com/releases/'
+            }
+        }
+        filter { includeGroup('com.terraformersmc') }
+    }
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'Modrinth'
+                url = 'https://api.modrinth.com/maven'
+            }
+        }
+        filter { includeGroup('maven.modrinth') }
+    }
+}
+
+// Declare capabilities on the outgoing configurations.
+// Read more about capabilities here: https://docs.gradle.org/current/userguide/component_capabilities.html#sec:declaring-additional-capabilities-for-a-local-component
+['apiElements', 'runtimeElements', 'sourcesElements'].each { variant ->
+    configurations."$variant".outgoing {
+        capability("$group:${project.name}:$version")
+        capability("$group:${base.archivesName.get()}:$version")
+        capability("$group:$mod_id-${project.name}-${minecraft_version}:$version")
+        capability("$group:$mod_id:$version")
+    }
+    publishing.publications.configureEach {
+        suppressPomMetadataWarningsFor(variant)
+    }
+}
+
+sourcesJar {
+    from(rootProject.file('LICENSE')) {
+        rename { "${it}_${mod_id}" }
+    }
+}
+
+jar {
+    from(rootProject.file('LICENSE')) {
+        rename { "${it}_${mod_id}" }
+    }
+
+    manifest {
+        attributes([
+                'Specification-Title'   : mod_name,
+                'Specification-Vendor'  : mod_author,
+                'Specification-Version' : project.jar.archiveVersion,
+                'Implementation-Title'  : project.name,
+                'Implementation-Version': project.jar.archiveVersion,
+                'Implementation-Vendor' : mod_author,
+                'Built-On-Minecraft'    : minecraft_version
+        ])
+    }
+}
+
+processResources {
+    var expandProps = [
+            'version'                   : version,
+            'group'                     : project.group, // Else we target the task's group.
+            'minecraft_version'         : minecraft_version,
+            'minecraft_version_range'   : minecraft_version_range,
+            'fabric_version'            : fabric_version,
+            'fabric_loader_version'     : fabric_loader_version,
+            'mod_name'                  : mod_name,
+            'mod_author'                : mod_author,
+            'mod_id'                    : mod_id,
+            'license'                   : license,
+            'description'               : project.description,
+            'forge_version'             : forge_version,
+            'forge_version_range'       : forge_version_range,
+            'forge_loader_version_range': forge_loader_version_range,
+            'credits'                   : credits,
+            'java_version'              : java_version
+    ]
+
+    var jsonExpandProps = expandProps.collectEntries {
+        key, value -> [(key): value instanceof String ? value.replace("\n", "\\\\n") : value]
+    }
+
+    filesMatching(['META-INF/mods.toml']) {
+        expand expandProps
+    }
+
+    filesMatching(['pack.mcmeta', 'fabric.mod.json', '*.mixins.json']) {
+        expand jsonExpandProps
+    }
+
+    inputs.properties(expandProps)
+}
+
+// The client half of the mod lives under <group>.client (and, in a loader module, under that module's own
+// client and compat packages) and must never be reachable from the rest, or a dedicated server would try
+// to load rendering classes. One source set per module means the compiler cannot enforce that, so this
+// does: it fails the build if a class outside those packages mentions a class of the common client code.
+// A loader's server-safe classes may still name that loader's own client entry class, which they only
+// ever call behind the loader's side check (see LivingWorldForge).
+tasks.register('checkClientIsolation') {
+    group = 'verification'
+    description = 'Fails if server-safe classes reference client-only classes.'
+    def classesDirs = sourceSets.main.output.classesDirs
+    def root = project.group.toString().replace('.', '/')
+    dependsOn tasks.named('compileJava')
+    inputs.files(classesDirs)
+    doLast {
+        def clientOnly = ~("^" + root + "/(client|[a-z]+/(client|compat))/.*")
+        def offenders = []
+        classesDirs.each { dir ->
+            if (!dir.exists()) {
+                return
+            }
+            dir.eachFileRecurse(groovy.io.FileType.FILES) { f ->
+                def rel = dir.toPath().relativize(f.toPath()).toString().replace('\\', '/')
+                if (!rel.endsWith('.class') || rel ==~ clientOnly) {
+                    return
+                }
+                // Class names appear verbatim in the constant pool, so a text search of the bytes is enough.
+                if (new String(f.bytes, 'ISO-8859-1').contains(root + '/client/')) {
+                    offenders << rel
+                }
+            }
+        }
+        if (!offenders.isEmpty()) {
+            throw new GradleException('Client-only classes are referenced from server-safe code:\n  ' + offenders.join('\n  '))
+        }
+    }
+}
+tasks.named('check') { dependsOn 'checkClientIsolation' }
+
+publishing {
+    publications {
+        register('mavenJava', MavenPublication) {
+            artifactId base.archivesName.get()
+            from components.java
+        }
+    }
+    repositories {
+        maven {
+            url System.getenv('local_maven_url')
+        }
+    }
+}

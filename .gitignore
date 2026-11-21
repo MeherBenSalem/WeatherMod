@@ -3,8 +3,9 @@
 build/
 out/
 
-# Loom / dev runs
+# Dev runs (run/ is the Fabric client, forge/run/ the Forge one)
 run/
+runs/
 remappedSrc/
 logs/
 *.log
@@ -20,6 +21,7 @@ hs_err_pid*
 .project
 .settings/
 bin/
+*.launch
 
 # OS
 Thumbs.db

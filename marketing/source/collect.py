@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Turns the output of the capture run into the listing's screenshots and animations.
 
-  ./gradlew runAutotest -PlwScenes=marketing        # captures to run/livingworld-autotest (see marketing/README.md)
+  ./gradlew :fabric:runAutotest -PlwScenes=marketing   # captures to run/livingworld-autotest (see marketing/README.md)
   python marketing/source/collect.py                 # -> marketing/images/screenshots/*.jpg, marketing/images/gifs/*.gif
   python marketing/source/collect.py run/a run/b     # take each capture from the first folder that has it
 

@@ -1,0 +1,68 @@
+plugins {
+    id 'multiloader-loader'
+    id 'fabric-loom'
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings loom.layered {
+        officialMojangMappings()
+        parchment("org.parchmentmc.data:parchment-${parchment_minecraft}:${parchment_version}@zip")
+    }
+    modImplementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_version}"
+    implementation group: 'com.google.code.findbugs', name: 'jsr305', version: '3.0.1'
+
+    modCompileOnly "com.terraformersmc:modmenu:${modmenu_version}"
+    // Sodium is compiled against (never bundled, never required) so that the mod can teach Sodium's
+    // terrain shaders its water, vegetation sway and seasonal colours. See dev.livingworld.fabric.compat.sodium.
+    modCompileOnly "maven.modrinth:sodium:${sodium_version}"
+
+    // Compatibility smoke tests: `gradlew :fabric:runAutotest -PlwCompat=sodium` or `-PlwCompat=sodium,iris`
+    // adds those mods to the dev client only. They are never bundled or required.
+    if (project.hasProperty('lwCompat')) {
+        def compat = project.property('lwCompat').toString()
+        modLocalRuntime "maven.modrinth:sodium:${sodium_version}"
+        if (compat.contains('iris')) {
+            modLocalRuntime "maven.modrinth:iris:${iris_version}"
+        }
+    }
+}
+
+loom {
+    if (project(':common').file("src/main/resources/${mod_id}.accesswidener").exists()) {
+        accessWidenerPath.set(project(':common').file("src/main/resources/${mod_id}.accesswidener"))
+    }
+    mixin {
+        defaultRefmapName.set("${mod_id}.refmap.json")
+    }
+    runs {
+        client {
+            client()
+            setConfigName('Fabric Client')
+            ideConfigGenerated(true)
+            // The dev client keeps using the run folder at the root of the repository.
+            runDir('../run')
+            vmArgs '-Xmx3G'
+        }
+        server {
+            server()
+            setConfigName('Fabric Server')
+            ideConfigGenerated(true)
+            runDir('../run')
+        }
+        // `gradlew :fabric:runAutotest` boots a client, creates a throw-away world, walks through the
+        // scripted scenario list, writes screenshots + a report to run/livingworld-autotest and exits.
+        autotest {
+            client()
+            setConfigName('Fabric Autotest')
+            ideConfigGenerated(false)
+            runDir('../run')
+            vmArgs '-Xmx3G', '-Dlivingworld.autotest=true'
+            // Run a subset of scenes with e.g. `gradlew :fabric:runAutotest -PlwScenes=desert,snow`.
+            if (project.hasProperty('lwScenes')) {
+                vmArg "-Dlivingworld.autotest.only=${project.property('lwScenes')}"
+            }
+        }
+    }
+}

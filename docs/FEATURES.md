@@ -193,17 +193,18 @@ shader" are inactive** and water keeps the look the pack gives it.
 | Presets: Performance / Balanced / Ultra / Cinematic | ✅ | Hard budgets. |
 | Batching, pooling, culling, LOD, bounded memory, adaptive density | ✅ | |
 | GPU instancing | ❌ | Batched CPU-built quads instead (one buffer upload per frame). |
-| Client/server separation enforced | ✅ | Split source sets: common code cannot reference client code at compile time. |
+| Client/server separation enforced | ✅ | All client code is under `dev.livingworld.client`, and the build fails if a class outside those packages mentions one inside them (`:common:checkClientIsolation`, part of `gradlew check`). |
+| One code base for Fabric and Forge | ✅ | A `common` module compiled against plain Minecraft with no loader, and one thin module per loader (the MultiLoader-Template layout). Both jars come out of `gradlew build`. |
 | Lightweight networking | ✅ | One small packet per dimension, only on change. Works with no packets at all on vanilla servers. |
 | Settings screen with 14 categories, tooltips | ✅ | Generated from annotated config fields. |
 | Separate server config | ✅ | `config/livingworld-server.json`. |
 | `/livingworld` and `/lw` commands | ✅ | Simulated vs. real weather kept explicit. |
 | Extension API | ✅ | `LivingWorldApi`. |
-| Mod Menu integration | 🟡 | Implemented, compiled against Mod Menu; not run with Mod Menu installed. |
-| Unit tests | ✅ | 35 tests on the pure simulation (including the calendar, seasonal growth and when winter freezes and thaws), the decal store, the synthesiser and the patch applied to Sodium's shader. |
-| Automated in-game scene run with screenshots | ✅ | `gradlew runAutotest`. |
+| Settings button in the mod list | 🟡 | Fabric: Mod Menu integration, compiled against Mod Menu; not run with Mod Menu installed. Forge: the *Config* button of the built-in mod list; implemented, not clicked in a run. F9 and `/lw config` are what the scene run uses. |
+| Unit tests | ✅ | 37 tests on the pure simulation (including the calendar, seasonal growth and when winter freezes and thaws), the decal store, the synthesiser and the patch applied to Sodium's and Embeddium's shader. |
+| Automated in-game scene run with screenshots | ✅ | `gradlew :fabric:runAutotest` and `gradlew :forge:runAutotest`: the same scenes on either loader. |
 | Frame sequences in the scene run | ✅ | A scene can record a short run of frames and measure how much of the picture changes from one to the next, and how much changes and changes straight back (flicker). Used on the water in a calm and in a gale, on surf, and on leaves in a breeze, where the run fails if more than 2% of the picture flickers. It tells motion from stillness and flicker from motion; it does not say whether the motion looks right. |
-| Sodium support for water, sway and seasons | 🟡 | Sodium 0.5.x only. See COMPATIBILITY.md for how it works and what was run. |
+| Sodium support for water, sway and seasons | 🟡 | Sodium 0.5.x on Fabric and Embeddium 0.3.x on Forge only. See COMPATIBILITY.md for how it works and what was run. |
 | Half-resolution buffers | 🟡 | The cloud layer over open sky, on Performance and Balanced. **Water reflections are not half-resolution:** water is shaded while the terrain is drawn, so there is no separate reflection pass to shrink; that would need the reflections moved into a pass of their own. The Performance preset skips the reflection ray instead. |
 | In-game A/B benchmark | ✅ | `/livingworld benchmark`. |
 
@@ -214,10 +215,16 @@ shader" are inactive** and water keeps the look the pack gives it.
   much of the picture changes (water, surf, leaves). Animation quality (sway, shimmer, gusts, camera
   feedback, drifting clouds, the northern lights) has not been watched by a person.
 - **Multiplayer with real remote players**, and a **dedicated server launch** (starting one requires
-  accepting Mojang's EULA, which was not done on your behalf). Dedicated-server safety rests on the
-  compile-time source-set split.
-- **Shader packs.** The yield path is implemented, but no shader pack was loaded.
-- **Sodium versions other than 0.5.11**, and the opt-in winter and crop rules over a whole season of play.
+  accepting Mojang's EULA, which was not done on your behalf). On Fabric a dedicated server was started
+  as far as the EULA prompt, by which point the mod had initialised without error; Forge
+  loads mods after that prompt, so there dedicated-server safety rests on the build check that fails
+  when server-safe code mentions a client class, and on the server half having run inside the Forge
+  client's single-player world.
+- **Either jar in a real installation.** Both loaders were run from the development environment only.
+- **Shader packs.** The yield path is implemented, but no shader pack was loaded. Oculus was not run.
+- **Sodium versions other than 0.5.11 and Embeddium versions other than 0.3.31**, and the opt-in winter
+  and crop rules over a whole season of play.
 - **Hardware other than the development machine** (Intel UHD 770 integrated graphics), Fabulous
-  graphics (the water shading in particular has only been run on Fancy), and Mod Menu.
+  graphics (the water shading in particular has only been run on Fancy), Mod Menu, and the Config button
+  of Forge's mod list.
 - **Water against other mods' translucent blocks and fluids.** Only vanilla water, glass and ice were looked at.

@@ -1,6 +1,6 @@
 # Living World
 
-An environmental realism engine for Minecraft 1.20.1 (Fabric). It replaces "weather as a toggle" with one
+An environmental realism engine for Minecraft 1.20.1, for Fabric and for Forge. It replaces "weather as a toggle" with one
 shared simulation — temperature, humidity, wind, precipitation, ground wetness, shelter — and lets every
 visual and audible effect read from it, so the world reacts as a whole:
 
@@ -32,32 +32,39 @@ Two rules that a server can switch on are the exceptions: winters that place rea
 that grow with the seasons (see [Seasonal gameplay](#seasonal-gameplay)).
 
 No shader pack is needed. The water shading, vegetation sway and seasonal foliage colours work on the
-vanilla renderer and with Sodium 0.5, whose terrain shader the mod extends to do the same. Under an Iris
-shader pack those three are off and the pack is left in charge. See
-[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
+vanilla renderer and with Sodium 0.5 (Fabric) or Embeddium 0.3 (Forge), whose terrain shader the mod
+extends to do the same. Under an Iris or Oculus shader pack those three are off and the pack is left in
+charge. See [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
 
 > Status: a complete, buildable first release. What is done, partial and missing is listed honestly in
 > [docs/FEATURES.md](docs/FEATURES.md). Read "What has and has not been verified" below before judging it.
 
 ## Requirements
 
-| | |
-|---|---|
-| Minecraft | 1.20.1 |
-| Loader | Fabric Loader 0.15 or newer |
-| Required | Fabric API |
-| Optional | Mod Menu (adds a settings button) |
-| Java | 17 |
+| | Fabric | Forge |
+|---|---|---|
+| Minecraft | 1.20.1 | 1.20.1 |
+| Loader | Fabric Loader 0.15 or newer | Forge 47.2.0 or newer |
+| Required | Fabric API | nothing else |
+| Optional | Mod Menu (adds a settings button) | — (the mod list's *Config* button opens the settings) |
+| Java | 17 | 17 |
 
-Why 1.20.1 on Fabric: it is the most widely modded modern version, it runs on Java 17, and Fabric's
-rendering, sound and model-loading APIs give clean hooks for everything this mod needs without
-replacing the renderer.
+Both jars are built from one code base and do the same things: everything the mod does lives in a module
+that knows nothing of either loader, and each loader gets a thin module that plugs it in (see
+[Source layout](#source-layout)). Why 1.20.1: it is the most widely modded modern version on both
+loaders and it runs on Java 17.
 
 ## Install
 
-Build the jar (see [Building](#building); it is written to `build/libs/livingworld-1.0.0.jar`) and drop
-it and Fabric API into `mods/`. It can be installed on the client only (works on any server, including
-vanilla), on both sides, or on a server only — see [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
+Build the jars (see [Building](#building)) and drop the one for your loader into `mods/`:
+
+| Loader | Jar | Also needed |
+|---|---|---|
+| Fabric | `fabric/build/libs/livingworld-fabric-1.20.1-1.0.0.jar` | Fabric API |
+| Forge | `forge/build/libs/livingworld-forge-1.20.1-1.0.0.jar` | — |
+
+It can be installed on the client only (works on any server, including vanilla), on both sides, or on a
+server only — see [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
 
 ## Using it
 
@@ -66,7 +73,8 @@ vanilla), on both sides, or on a server only — see [docs/COMPATIBILITY.md](doc
   see the commands below to jump to a season or change its length. *Climate & Temperature → Calendar*
   puts the season, the day within it and a bar for the year in the corner of the screen.
 - **Settings:** press **F9** in-game (rebindable under Controls → Living World), run `/lw config`, or use
-  Mod Menu. Fourteen categories; every option has a description.
+  Mod Menu on Fabric and the *Config* button of the mod list on Forge. Fourteen categories; every option
+  has a description.
 - **Presets** (Graphics & Performance): *Performance*, *Balanced* (default), *Ultra*, *Cinematic*. They
   are hard budgets for particles, precipitation and footprints, plus which screen-space features run.
 - **Survival rules are off by default.** Heat and cold are feedback only. A server (or you, in
@@ -182,7 +190,8 @@ Design decisions worth knowing:
   Sodium's terrain shader as it is loaded, and hands that shader the same per-frame values the vanilla
   overrides get. The water, sway and season code itself is one set of GLSL files used by both. If a
   line the patch hangs on is missing (another Sodium version), the patch is not applied and Sodium is
-  left exactly as it was.
+  left exactly as it was. Embeddium, the port of Sodium 0.5 that Forge players use, keeps Sodium's class
+  names and shaders, so the Forge module hooks it in the same four places and shares the rest.
 - **Stateless precipitation.** A raindrop is a function of its index and two accumulated offsets (how
   far the rain has fallen, how far the wind has carried it). Thousands of streaks cost one hash and one
   quad each, lean with the wind, and are hidden under whatever would have stopped them.
@@ -199,24 +208,43 @@ Design decisions worth knowing:
 - **Hard budgets.** Particles live in fixed primitive arrays, decals in a bounded store, drops in a
   per-preset count. A storm cannot allocate or spawn its way into a stutter; under load an adaptive
   scale sheds density first.
-- **Server safety by construction.** Client code lives in a separate source set that common code cannot
-  reference at compile time.
+- **Server safety, checked by the build.** Client code lives under `dev.livingworld.client`, and
+  `gradlew check` fails if a class outside those packages mentions one inside them
+  (`:common:checkClientIsolation`), so a dedicated server can never be made to load rendering classes.
+- **One code base, two loaders.** The simulation, rendering, audio, commands and every asset are in a
+  module that is compiled against plain Minecraft with no mod loader on the classpath. What differs
+  between Fabric and Forge is how the game calls in (events), how packets travel, how a sound instance
+  hands over its own audio, and how a plant's model gets its vertex tags; each loader module does only
+  those and forwards everything else.
 
-Source layout:
+### Source layout
+
+The project follows the [MultiLoader-Template](https://github.com/jaredlll08/MultiLoader-Template): a
+`common` module with the mod itself, and one thin module per loader that compiles common's sources
+together with its own (so mixins get the right names for that loader) and ships common's resources.
 
 | Path | Contents |
 |---|---|
-| `src/main/java/dev/livingworld` | Common: climate maths, wind field, weather model, biome and surface registries, server sync, commands, survival rules, API |
-| `src/client/java/dev/livingworld/client` | Environment state, atmosphere, renderers, particles, footprints, audio, settings screen, debug tools, mixins |
-| `src/client/resources/assets/livingworld` | Shaders, textures, language file, `sounds.json` |
-| `src/client/resources/assets/minecraft/shaders/core` | Overrides of two vanilla terrain shaders: cut-out (vegetation sway, seasonal colours) and translucent (water) |
-| `src/client/resources/assets/minecraft/shaders/include` | The shape of the water surface and of the cloud field, and the water, cloud and foliage shading, shared by the shaders that need them (the vanilla overrides, the atmosphere pass and the patched Sodium shader) |
-| `src/client/java/dev/livingworld/client/compat/sodium` | The Sodium bridge: shader patch, vertex tags, per-frame values |
-| `src/main/java/dev/livingworld/server` | Server sync, commands, and the two seasonal gameplay rules (`SeasonalGrowth`, `SeasonalWorld`) |
+| `common/src/main/java/dev/livingworld` | Loader-independent code that is safe on a dedicated server: climate maths, wind field, weather model, biome and surface registries, server sync, commands, survival rules, API. `LivingWorld` is its entry point |
+| `common/src/main/java/dev/livingworld/client` | The client: environment state, atmosphere, renderers, particles, footprints, audio, settings screen, debug tools, mixins. `LivingWorldClient` is its entry point |
+| `common/src/main/java/dev/livingworld/platform`, `.../client/platform` | The few things the common code has to ask the loader for (`IPlatformHelper`, `IClientPlatformHelper`), found through `META-INF/services` |
+| `common/src/main/java/dev/livingworld/client/compat/sodium` | The Sodium bridge: shader patch, vertex tags, per-frame values. Shared by Sodium and Embeddium |
+| `common/src/main/java/dev/livingworld/server` | Server sync, commands, and the two seasonal gameplay rules (`SeasonalGrowth`, `SeasonalWorld`) |
+| `common/src/main/resources/assets/livingworld` | Shaders, textures, language file, `sounds.json` |
+| `common/src/main/resources/assets/minecraft/shaders/core` | Overrides of two vanilla terrain shaders: cut-out (vegetation sway, seasonal colours) and translucent (water) |
+| `common/src/main/resources/assets/minecraft/shaders/include` | The shape of the water surface and of the cloud field, and the water, cloud and foliage shading, shared by the shaders that need them (the vanilla overrides, the atmosphere pass and the patched Sodium shader) |
+| `common/src/assetgen` | The program that generates every texture |
+| `common/src/test` | Unit tests |
+| `fabric/src/main/java/dev/livingworld/fabric` | Fabric: entry points that forward Fabric API's events, networking, sound and model hooks, Mod Menu, the mixins into Sodium |
+| `forge/src/main/java/dev/livingworld/forge` | Forge: the `@Mod` class that forwards Forge's events, the network channel, sound and model hooks, the mixins into Embeddium |
+| `buildSrc` | The two Gradle convention plugins every module applies (`multiloader-common`, `multiloader-loader`) |
 | `docs/sample-pack-template` | A resource pack to fill with recorded birds and frogs |
 | `marketing` | Listing pages and artwork for CurseForge and Modrinth, and how they were made |
-| `src/assetgen` | The program that generates every texture |
-| `src/test` | Unit tests |
+
+Adding a feature means writing it in `common`. A loader module only changes when the feature needs
+something from the loader that the common code does not already get: a new event is forwarded from both
+`LivingWorldFabric*` and `LivingWorldForge*` to a new method on `LivingWorld` or `LivingWorldClient`, and
+anything the common code has to ask for becomes a method on one of the two platform interfaces.
 
 ### For other mods
 
@@ -230,10 +258,12 @@ Unregistered biomes and blocks are classified automatically (tags, temperature, 
 
 ## Assets
 
-There are no third-party assets. Every texture is generated by `src/assetgen` (`gradlew generateAssets`
-regenerates them) and every sound is synthesised at runtime by
-`dev.livingworld.client.audio.synth` — there are no audio files in the jar. A resource pack can add
-recordings for the birds and frogs ([docs/SAMPLE_PACK.md](docs/SAMPLE_PACK.md)); none are provided.
+There are no third-party assets. Every texture is generated by `common/src/assetgen`
+(`gradlew generateAssets` regenerates them) and every sound is synthesised at runtime by
+`dev.livingworld.client.audio.synth`. The one audio file in the jar, `sounds/empty.ogg`, is 50 ms of
+silence: the game will not start a streamed sound that has no file behind it, so the synthesised streams
+name this one and never play it. A resource pack can add recordings for the birds and frogs
+([docs/SAMPLE_PACK.md](docs/SAMPLE_PACK.md)); none are provided.
 
 ## Building
 
@@ -241,31 +271,44 @@ recordings for the birds and frogs ([docs/SAMPLE_PACK.md](docs/SAMPLE_PACK.md));
 ./gradlew build
 ```
 
-The jar is written to `build/libs/`. Gradle needs a JDK 17.
+This builds both jars, `fabric/build/libs/livingworld-fabric-1.20.1-1.0.0.jar` and
+`forge/build/libs/livingworld-forge-1.20.1-1.0.0.jar`. Gradle has to be started with a JDK 17
+(`JAVA_HOME`); the code itself is compiled for Java 17. Versions of Minecraft, the loaders and the
+optional mods are all in `gradle.properties`.
 
 | Task | What it does |
 |---|---|
-| `gradlew build` | Compile, run the unit tests, package the jar |
-| `gradlew test` | Unit tests only |
-| `gradlew runClient` | Dev client |
-| `gradlew runAutotest [-PlwScenes=desert,snow]` | Scripted in-game scene run (see Testing) |
-| `gradlew runAutotest -PlwCompat=sodium[,iris]` | The same with Sodium (and Iris) added to the dev client |
-| `gradlew runAutotest -PlwScenes=marketing` | Captures the listing screenshots and clips (see [marketing/README.md](marketing/README.md)) |
+| `gradlew build` | Compile all three modules, run the unit tests and the client-isolation check, package both jars |
+| `gradlew :fabric:build` / `gradlew :forge:build` | One loader only |
+| `gradlew :common:test` | Unit tests only |
+| `gradlew :fabric:runClient` / `gradlew :forge:runClient` | Dev client (Fabric uses the `run` folder at the root, Forge uses `forge/run`) |
+| `gradlew :fabric:runServer` / `gradlew :forge:runServer` | Dev dedicated server |
+| `gradlew :fabric:runAutotest [-PlwScenes=desert,snow]` | Scripted in-game scene run (see Testing) |
+| `gradlew :forge:runAutotest [-PlwScenes=desert,snow]` | The same on Forge |
+| `gradlew :fabric:runAutotest -PlwCompat=sodium[,iris]` | With Sodium (and Iris) added to the Fabric dev client |
+| `gradlew :forge:runAutotest -PlwCompat=embeddium[,oculus]` | With Embeddium (and Oculus) added to the Forge dev client |
+| `gradlew :fabric:runAutotest -PlwScenes=marketing` | Captures the listing screenshots and clips (see [marketing/README.md](marketing/README.md)) |
 | `gradlew generateAssets` | Regenerate the textures |
 
 ## Testing
 
-**Unit tests** (35) cover the parts that are pure logic: the temperature model, wind field, weather
-intensity, noise, the sync packet, the calendar (the order of the seasons, where a new world starts in
-the year, which looks belong to which season, jumping to a season), how fast crops grow in each season,
-at what temperatures winter freezes and thaws, the decal store's budget/ageing/eviction rules, the
-synthesiser (silence at zero, no clipping, indoor muffling), and the patch applied to Sodium's shader
-(that it goes in at the right places, and that an unfamiliar shader is left alone).
+**Unit tests** (37, in `common`) cover the parts that are pure logic: the temperature model, wind field,
+weather intensity, noise, the sync packet, the calendar (the order of the seasons, where a new world
+starts in the year, which looks belong to which season, jumping to a season), how fast crops grow in
+each season, at what temperatures winter freezes and thaws, the decal store's budget/ageing/eviction
+rules, the synthesiser (silence at zero, no clipping, indoor muffling), and the patch applied to Sodium's
+and Embeddium's shader (that it goes in at the right places, that the tag is only read from a vertex
+format that has room for it, and that an unfamiliar shader is left alone).
 
-**In-game scene run.** Visual effects cannot be asserted from a unit test, so `gradlew runAutotest`
+**The build checks itself.** `gradlew build` also fails if a class outside the client packages refers to
+one inside them, which is what keeps a dedicated server from ever loading rendering code.
+
+**In-game scene run.** Visual effects cannot be asserted from a unit test, so `gradlew :fabric:runAutotest`
+(or `:forge:runAutotest`: the scenes are common code, so they are the same on both loaders)
 boots a real client, creates a throw-away world, teleports to each biome, sets conditions with the
 mod's own commands, physically walks the player around, and writes screenshots plus a report (state of
-every system, GL errors, pass/fail expectations) to `run/livingworld-autotest/`. Scenes: settings
+every system, GL errors, pass/fail expectations) to `run/livingworld-autotest/` on Fabric and
+`forge/run/livingworld-autotest/` on Forge. Scenes: settings
 screen, desert (noon, footprints, sandstorm, night), snowy plains (footprints, creature tracks,
 blizzard), plains (a field of grass in strong wind), forest (morning mist, wind, heavy rain, mud,
 thunderstorm with a real lightning strike, after-rain), jungle, swamp at night, cave under a storm,
@@ -289,27 +332,34 @@ per frame and a gale more than 12%; the `seasons` scene fails if more than 2% of
 breeze flickers. It does not say whether motion looks right, only whether there is any and whether it
 flickers.
 
-`gradlew runAutotest -PlwScenes=showcase` runs a ten-minute cinematic tour instead, at 1080p on the
-Ultra preset with sound on, and saves a screenshot of every moment as `sc_*.png`.
+`gradlew :fabric:runAutotest -PlwScenes=showcase` runs a ten-minute cinematic tour instead, at 1080p on
+the Ultra preset with sound on, and saves a screenshot of every moment as `sc_*.png`.
 
-Last results (NVIDIA RTX 3050):
+Last results (NVIDIA RTX 3050), from the development clients of both loaders:
 
-- **Vanilla renderer, every scene:** completed with no OpenGL errors, and 49 of 50 expectations passed.
-  The one that failed, "the terrain column cache follows terrain edits", depends on where a teleport
-  lands: the test pond is dug 40 blocks east of wherever the desert scene put the player, and in this run
-  that was in the sea. The other check of that kind, "jungle air is humid" (it fails when the jungle
-  teleport comes down on its beach), passed this time. The version of the mod from before the water, sky
-  and seasons work fails checks in the same scenes when run here, so these are weaknesses of the tests,
-  not of what they test. For the same reason the newer scenes run last: each scene starts from where the
-  previous one ended, so a scene added in the middle moves every later one.
-- **Frame sequences** across the three runs listed here: still water changed 5.7% to 6.3% per frame (the
-  pond's banks have surf and the desert air shimmers), water in a gale 27% to 78% depending on the view,
-  and leaves in a breeze flickered over 0.00% to 0.04% of the picture.
-- **Sodium 0.5.11** (`-PlwCompat=sodium -PlwScenes=plains,water,seasons`): every expectation passed, the
-  bridge patched both stages of Sodium's shader, and the screenshots show the same see-through water,
-  leaning grass and seasonal colours as the vanilla renderer's.
-- **Sodium 0.5.11 + Iris 1.7.2**, no shader pack, the same three scenes: every expectation passed, with
-  the same pictures.
+- **Fabric, vanilla renderer, every scene:** completed with no OpenGL errors, and 49 of 51 expectations
+  passed.
+- **Forge, vanilla renderer, every scene:** the same: no OpenGL errors, 49 of 51, and the same two failed.
+  The screenshots of the two runs were compared scene by scene (water, sky and clouds, rain, footprints,
+  the seasons, the settings screen).
+- **The two that failed, on both loaders,** depend on where a teleport lands, not on what they test.
+  "The terrain column cache follows terrain edits": the test pond is dug 40 blocks east of wherever the
+  desert scene put the player, and in these runs that was in the sea. "Jungle air is humid": the jungle
+  teleport came down on its beach (the report gives the biome there as a beach). Each scene starts from
+  where the previous one ended, which is also why the newer scenes run last: a scene added in the middle
+  moves every later one.
+- **Frame sequences** across the runs listed here and one repeat: still water changed 2.2% to 7.9% per frame (the
+  pond's banks have surf and the desert air shimmers, and how much of either is in view differs from run
+  to run: two Fabric runs of the same build gave 2.2% and 4.9%), water in a gale 19% to 41%, and leaves in
+  a breeze flickered over 0.00% to 0.02% of the picture.
+- **Sodium 0.5.11 on Fabric** (`:fabric:runAutotest -PlwCompat=sodium -PlwScenes=plains,water,seasons`):
+  every expectation passed and the bridge patched both stages of Sodium's shader.
+- **Embeddium 0.3.31 on Forge** (`:forge:runAutotest -PlwCompat=embeddium -PlwScenes=plains,water,seasons`):
+  every expectation passed, the bridge patched both stages of Embeddium's shader, and the screenshots
+  show the same see-through water, leaning grass and seasonal colours as the vanilla renderer's.
+- **Dedicated server.** On Fabric a dedicated server was started as far as the EULA prompt, which is
+  after the mod has initialised: it did, without error. Forge constructs mods after
+  that prompt, so the same start says nothing there; see the next section.
 
 ## Performance
 
@@ -378,14 +428,26 @@ at 2 Hz and heat-source scans at 1 Hz; all per-frame uniforms computed once per 
 ## What has and has not been verified
 
 Verified in a running client, by report, still screenshot and (for water, surf and leaves) frame
-sequences: every scene above on the vanilla renderer, and the `plains`, `water` and `seasons` scenes with
-Sodium 0.5.11 and with Sodium 0.5.11 + Iris 1.7.2 (no shader pack). The listing screenshots under
-`marketing/images/screenshots` are a second look at most of it at 1920×1080 on the Ultra preset.
+sequences: every scene above on the vanilla renderer **on both Fabric and Forge**, and the `plains`,
+`water` and `seasons` scenes with Sodium 0.5.11 on Fabric and with Embeddium 0.3.31 on Forge. The listing
+screenshots under `marketing/images/screenshots` are a second look at most of it at 1920×1080 on the
+Ultra preset (taken on Fabric).
 
 Not verified, and you should check before relying on it:
 
+- **The jars in a real installation.** Everything above was run from the development environment, where
+  the game has readable names. The jars that come out of `gradlew build` were only checked from the
+  outside: that every reference to the game uses the names the loader has at run time, and that the
+  mixin name maps are complete. Start each one once in a launcher before publishing it.
+- **A Forge dedicated server.** Starting one means accepting Mojang's EULA, which is yours to do, and
+  Forge does not load mods before that. What stands in for it: the same common code initialised on a
+  Fabric dedicated server, the server half ran inside the Forge client's single-player world for every
+  scene, and the build fails if server-safe code mentions a client class.
+- **Multiplayer with real remote players**, on either loader. The packets have only travelled between a
+  client and its own built-in server.
 - **Sound.** The synthesiser was validated by measurement (levels, spectra, clipping, CPU), never by
-  ear. Expect to want to adjust volumes; the synthetic birds and frogs are the likeliest to disappoint.
+  ear. The scene run now checks that the synthesised beds are playing on each loader, not how they sound.
+  Expect to want to adjust volumes; the synthetic birds and frogs are the likeliest to disappoint.
   The hook for recorded birds and frogs has not been run with a pack of real recordings.
 - **How motion looks.** The frame sequences show that still water is nearly still, that a gale moves it,
   and that leaves in a breeze do not flicker. Whether sway, shimmer, gusts, surf, drifting clouds, the
@@ -393,15 +455,16 @@ Not verified, and you should check before relying on it:
 - **A whole year in real time.** The seasons were looked at by jumping the calendar, not by playing
   through 32 days. The winter rule was run for a minute with its rate turned up sixteen-fold, and the
   crop rule only in unit tests: no field has been grown through a year.
-- **Sodium beyond three scenes and one version.** The other scenes were last run with Sodium before the
-  water, sky and season work. It is not known whether Sodium's own cloud renderer is switched off while
-  the mod draws its cloud layer; nothing doubled up in the three scenes, but if you see both, turn
-  *Volumetric clouds* off.
-- **Multiplayer with real remote players** and **a dedicated server launch** (starting one means
-  accepting Mojang's EULA, which is yours to do).
-- **Shader packs.** Iris was tested installed but without a pack loaded.
-- **Fabulous graphics**, **Fast graphics under Sodium** and **Mod Menu**. Everything since the water work
-  was only run on an NVIDIA RTX 3050; everything older than that only on the integrated chip above.
+- **Sodium and Embeddium beyond three scenes and one version each.** The other scenes were last run with
+  Sodium before the water, sky and season work, and never with Embeddium. It is not known whether their
+  own cloud renderer is switched off while the mod draws its cloud layer; nothing doubled up in the three
+  scenes, but if you see both, turn *Volumetric clouds* off. Embeddium with *Use Compact Vertex Format*
+  switched off is handled in code (the mod leaves its terrain alone) but was not run.
+- **Shader packs.** Iris was run installed but without a pack loaded, and not again since the project was
+  split into modules. Oculus was not run at all.
+- **Fabulous graphics**, **Fast graphics under Sodium or Embeddium**, **Mod Menu** and **the Config button
+  of Forge's mod list**. Everything since the water work was only run on an NVIDIA RTX 3050; everything
+  older than that only on the integrated chip above.
 - **Rain rings on water** are implemented, but in the screenshots of rain over a lake they cannot be made
   out. **Rainbows** were seen once, faintly, in a staged scene.
 - **Half-resolution reflections** were asked for and not done: water is shaded while the terrain is
