@@ -25,6 +25,9 @@ public final class ClientConfig {
     @Opt(Category.CLIMATE) public boolean coldBreath = true;
     @Opt(Category.CLIMATE) public boolean temperatureTint = true;
     @Opt(Category.CLIMATE) public boolean dustDevils = true;
+    @Opt(Category.CLIMATE) public boolean seasons = true;
+    @Opt(Category.CLIMATE) public boolean seasonalFoliage = true;
+    @Opt(Category.CLIMATE) public boolean seasonHud = false;
 
     // ---- Rain and storms ------------------------------------------------------------------------
     @Opt(Category.RAIN) public boolean customPrecipitation = true;
@@ -72,6 +75,10 @@ public final class ClientConfig {
     @Opt(value = Category.FOG, max = 1.5f) public float gradingStrength = 1f;
     @Opt(Category.FOG) public boolean exposureAdaptation = true;
     @Opt(Category.FOG) public boolean lightShafts = true;
+    @Opt(Category.FOG) public boolean volumetricClouds = true;
+    @Opt(Category.FOG) public boolean cloudShadows = true;
+    @Opt(Category.FOG) public boolean enhancedSky = true;
+    @Opt(Category.FOG) public boolean aurora = true;
 
     // ---- Water effects --------------------------------------------------------------------------
     @Opt(Category.WATER) public boolean waterRipples = true;
@@ -82,14 +89,14 @@ public final class ClientConfig {
     @Opt(Category.WATER) public boolean waterReflections = true;
     @Opt(value = Category.WATER, max = 2f) public float waveHeight = 1f;
     @Opt(Category.WATER) public boolean caustics = true;
+    @Opt(Category.WATER) public boolean shoreline = true;
 
     // ---- Sound and immersion --------------------------------------------------------------------
     @Opt(Category.SOUND) public boolean ambience = true;
     @Opt(value = Category.SOUND, max = 1.5f) public float ambienceVolume = 0.8f;
     @Opt(value = Category.SOUND, max = 1.5f) public float weatherVolume = 0.9f;
     @Opt(Category.SOUND) public boolean wildlife = true;
-    @Opt(Category.SOUND) public boolean footstepLayers = true;
-    @Opt(value = Category.SOUND, max = 1.5f) public float footstepVolume = 0.7f;
+    @Opt(Category.SOUND) public boolean recordedWildlife = true;
     @Opt(Category.SOUND) public boolean caveEcho = true;
     @Opt(Category.SOUND) public boolean replaceVanillaRain = true;
 

@@ -3,15 +3,11 @@ package dev.livingworld.client.audio;
 import dev.livingworld.client.audio.synth.AmbienceParams;
 import dev.livingworld.client.audio.synth.AmbienceSynth;
 import dev.livingworld.client.audio.synth.AmbientEvent;
-import dev.livingworld.client.audio.synth.OneShotSynth;
-import dev.livingworld.client.audio.synth.StepMaterial;
 import dev.livingworld.client.config.ClientConfig;
 import dev.livingworld.client.env.ClientEnvironment;
-import dev.livingworld.client.footprint.FootprintTracker;
 import dev.livingworld.client.mixin.AbstractSoundInstanceAccessor;
 import dev.livingworld.client.particle.AmbientSpawner;
 import dev.livingworld.climate.BiomeProfile.Kind;
-import dev.livingworld.surface.SurfaceMaterial;
 import dev.livingworld.util.LWMath;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.sound.PositionedSoundInstance;
@@ -34,10 +30,10 @@ import java.util.concurrent.ThreadLocalRandom;
  * biome blend the visuals use: rain changes timbre with the surfaces it lands on and muffles when you
  * step indoors, wind thins out in a forest and howls on a peak, birds stop when the storm arrives.
  *
- * <p>It also layers material-specific footsteps, delays thunder by its distance, and gives sounds a
- * short echo underground.
+ * <p>It also delays thunder by its distance and gives sounds a short echo underground. Footsteps are
+ * left to the game: the mod adds no sound of its own to walking.
  */
-public final class EnvironmentAudio implements FootprintTracker.StepListener, AmbientSpawner.EventListener {
+public final class EnvironmentAudio implements AmbientSpawner.EventListener {
     public static final EnvironmentAudio INSTANCE = new EnvironmentAudio();
     private static final Identifier THUNDER = SoundEvents.ENTITY_LIGHTNING_BOLT_THUNDER.getId();
 
@@ -54,7 +50,6 @@ public final class EnvironmentAudio implements FootprintTracker.StepListener, Am
     private boolean replaying;
     private int echoBudget;
     private int dripCooldown;
-    private final short[][] stepCache = new short[StepMaterial.values().length * 4 * 4][];
 
     private EnvironmentAudio() {
     }
@@ -117,6 +112,7 @@ public final class EnvironmentAudio implements FootprintTracker.StepListener, Am
         }
 
         updateParams(env, config);
+        recordedWildlife(client, env, config);
         randomEvents(env);
 
         if (env.distantThunderDistance >= 0f) {
@@ -137,6 +133,69 @@ public final class EnvironmentAudio implements FootprintTracker.StepListener, Am
                 d.action.run();
             }
         }
+    }
+
+    // ---- recorded wildlife --------------------------------------------------------------------------
+    // The mod ships no audio files: birds and frogs are synthesised. A resource pack may add recordings
+    // to the sound events livingworld:wildlife.birds and livingworld:wildlife.frogs (see
+    // docs/SAMPLE_PACK.md). Where it does, the recordings are played, placed in the world around the
+    // listener, as often and as loudly as the synthesised animals would have called, and the synthesised
+    // layer for that animal falls silent.
+
+    private static final Identifier RECORDED_BIRDS = dev.livingworld.LivingWorld.id("wildlife.birds");
+    private static final Identifier RECORDED_FROGS = dev.livingworld.LivingWorld.id("wildlife.frogs");
+    /** Whether a pack provides recordings (checked every few seconds; packs can be changed in-game). */
+    public boolean recordedBirds, recordedFrogs;
+    private int birdPause, frogPause;
+
+    private static boolean hasRecordings(MinecraftClient client, Identifier event) {
+        net.minecraft.client.sound.WeightedSoundSet set = client.getSoundManager().get(event);
+        return set != null && set.getSound(SoundInstance.createRandom()) != SoundManager.MISSING_SOUND;
+    }
+
+    private void recordedWildlife(MinecraftClient client, ClientEnvironment env, ClientConfig config) {
+        AmbienceParams p = params();
+        if (p == null) {
+            return;
+        }
+        if (tick % 100 == 1) {
+            recordedBirds = config.recordedWildlife && hasRecordings(client, RECORDED_BIRDS);
+            recordedFrogs = config.recordedWildlife && hasRecordings(client, RECORDED_FROGS);
+        }
+        ThreadLocalRandom r = ThreadLocalRandom.current();
+        if (recordedBirds) {
+            float level = p.birds;
+            p.birds = 0f;
+            if (--birdPause <= 0 && level > 0.04f && r.nextFloat() < 0.012f + 0.05f * level) {
+                birdPause = 25;
+                // Up in the trees, some way off.
+                playRecorded(client, env, RECORDED_BIRDS, 0.35f + 0.65f * level, 7f + r.nextFloat() * 14f, 2f + r.nextFloat() * 7f);
+            }
+        }
+        if (recordedFrogs) {
+            float level = p.frogs;
+            p.frogs = 0f;
+            if (--frogPause <= 0 && level > 0.04f && r.nextFloat() < 0.015f + 0.06f * level) {
+                frogPause = 18;
+                // Down at the water's edge.
+                playRecorded(client, env, RECORDED_FROGS, 0.35f + 0.65f * level, 5f + r.nextFloat() * 11f, -1.5f + r.nextFloat());
+            }
+        }
+    }
+
+    private void playRecorded(MinecraftClient client, ClientEnvironment env, Identifier event, float volume, float distance, float height) {
+        ThreadLocalRandom r = ThreadLocalRandom.current();
+        float bearing = r.nextFloat() * LWMath.TAU;
+        double x = env.camX + MathHelper.cos(bearing) * distance;
+        double z = env.camZ + MathHelper.sin(bearing) * distance;
+        float pitch = 0.94f + r.nextFloat() * 0.12f;
+        // Farther calls are quieter, by the mod's own reckoning: the game's linear falloff would silence
+        // anything past a pack's attenuation distance (16 blocks unless the pack says otherwise). The
+        // sound is still placed in the world, so a mono recording is heard from its direction.
+        float falloff = 1f - 0.55f * MathHelper.clamp(distance / 21f, 0f, 1f);
+        client.getSoundManager().play(new PositionedSoundInstance(event, SoundCategory.AMBIENT,
+                volume * falloff * ClientConfig.get().ambienceVolume, pitch, SoundInstance.createRandom(), false, 0,
+                SoundInstance.AttenuationType.NONE, x, env.camY + height, z, false));
     }
 
     private void schedule(int ticks, Runnable action) {
@@ -218,56 +277,6 @@ public final class EnvironmentAudio implements FootprintTracker.StepListener, Am
         } else if (env.nether && r.nextFloat() < 0.004f * Math.min(1f, 0.2f + env.heatSources / 12f)) {
             synth.triggerEvent(AmbientEvent.LAVA_POP, pan, 0.5f + r.nextFloat() * 0.4f);
         }
-    }
-
-    // ---- footsteps -------------------------------------------------------------------------------
-
-    @Override
-    public void onStep(SurfaceMaterial material, boolean muddy, boolean puddle, float intensity, double x, double y, double z,
-                       boolean localPlayer) {
-        ClientConfig config = ClientConfig.get();
-        if (!running || !config.footstepLayers || config.footstepVolume <= 0f) {
-            return;
-        }
-        StepMaterial step;
-        if (puddle) {
-            step = StepMaterial.PUDDLE;
-        } else if (muddy || material == SurfaceMaterial.MUD || material == SurfaceMaterial.CLAY) {
-            step = StepMaterial.MUD;
-        } else {
-            switch (material) {
-                case SNOW -> step = StepMaterial.SNOW;
-                case SAND, RED_SAND, SOUL -> step = StepMaterial.SAND;
-                case ICE -> step = StepMaterial.ICE;
-                case GRASS, MOSS -> {
-                    if (ClientEnvironment.INSTANCE.wetness < 0.3f) {
-                        return;
-                    }
-                    step = StepMaterial.WET_GRASS;
-                }
-                case DIRT, GRAVEL, ASH -> {
-                    if (intensity < 0.5f) {
-                        return;
-                    }
-                    step = StepMaterial.GRAVEL_DUST;
-                }
-                default -> {
-                    return;
-                }
-            }
-        }
-        int bucket = intensity < 0.3f ? 0 : intensity < 0.7f ? 1 : intensity < 0.95f ? 2 : 3;
-        int variant = ThreadLocalRandom.current().nextInt(4);
-        int key = (step.ordinal() * 4 + bucket) * 4 + variant;
-        short[] pcm = stepCache[key];
-        if (pcm == null) {
-            float level = bucket == 0 ? 0.2f : bucket == 1 ? 0.5f : bucket == 2 ? 0.8f : 1f;
-            pcm = OneShotSynth.footstep(step, level, key * 7919L + 13L);
-            stepCache[key] = pcm;
-        }
-        float volume = config.footstepVolume * (localPlayer ? 0.9f : 0.75f);
-        float pitch = 0.94f + ThreadLocalRandom.current().nextFloat() * 0.12f;
-        MinecraftClient.getInstance().getSoundManager().play(new SynthSounds.Clip(pcm, SoundCategory.PLAYERS, volume, pitch, x, y, z));
     }
 
     @Override

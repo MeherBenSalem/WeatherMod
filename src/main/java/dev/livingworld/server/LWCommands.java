@@ -6,6 +6,7 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import dev.livingworld.climate.Seasons;
 import dev.livingworld.climate.SimulationOverrides;
 import dev.livingworld.climate.WeatherType;
 import dev.livingworld.config.ServerConfig;
@@ -93,6 +94,62 @@ public final class LWCommands {
                     return 1;
                 })));
 
+        // --- the year -----------------------------------------------------------------------------
+        LiteralArgumentBuilder<ServerCommandSource> season = literal("season").executes(LWCommands::seasonInfo);
+        LiteralArgumentBuilder<ServerCommandSource> seasonSet = literal("set").requires(LWCommands::isOperator);
+        for (Seasons.Season s : Seasons.Season.VALUES) {
+            seasonSet.then(literal(s.id()).executes(ctx -> {
+                SeasonState.jumpTo(ctx.getSource().getServer(), s);
+                seasonChanged(ctx, "The calendar now stands in the middle of " + s.id() + " and carries on from here.");
+                return 1;
+            }));
+        }
+        season.then(seasonSet);
+        season.then(literal("length").requires(LWCommands::isOperator)
+                .then(argument("days", FloatArgumentType.floatArg(0.25f, 400f)).executes(ctx -> {
+                    float days = FloatArgumentType.getFloat(ctx, "days");
+                    SeasonState.setLength(ctx.getSource().getServer(), days);
+                    seasonChanged(ctx, String.format(Locale.ROOT, "A season now lasts %.2f days (a year is %.2f).", days, days * 4f));
+                    return 1;
+                })));
+        season.then(literal("on").requires(LWCommands::isOperator).executes(ctx -> {
+            ServerConfig.get().seasons = true;
+            ServerConfig.get().save();
+            seasonChanged(ctx, "Seasons are on.");
+            return 1;
+        }));
+        season.then(literal("off").requires(LWCommands::isOperator).executes(ctx -> {
+            ServerConfig.get().seasons = false;
+            ServerConfig.get().save();
+            seasonChanged(ctx, "Seasons are off: the climate no longer changes through the year.");
+            return 1;
+        }));
+        // The two rules that reach into gameplay, each off unless switched on.
+        for (String rule : new String[]{"crops", "snow"}) {
+            LiteralArgumentBuilder<ServerCommandSource> node = literal(rule).requires(LWCommands::isOperator);
+            for (boolean on : new boolean[]{true, false}) {
+                node.then(literal(on ? "on" : "off").executes(ctx -> {
+                    ServerConfig config = ServerConfig.get();
+                    if (rule.equals("crops")) {
+                        config.seasonalCrops = on;
+                    } else {
+                        config.seasonalSnowAndIce = on;
+                    }
+                    config.save();
+                    String what = rule.equals("crops")
+                            ? (on ? "Crops now grow with the seasons: faster in spring, slowly in autumn, hardly at all in winter."
+                            : "Crops grow as in vanilla again.")
+                            : (on ? "Winter now lays real snow and freezes still water where it is cold enough, and the thaw takes them away again."
+                            : "The seasons no longer place or remove snow and ice. What is lying now stays until you clear it or switch this back on for the thaw.");
+                    ctx.getSource().sendFeedback(() -> Text.literal("[Living World] ").formatted(Formatting.AQUA)
+                            .append(Text.literal(what).formatted(Formatting.WHITE)), true);
+                    return 1;
+                }));
+            }
+            season.then(node);
+        }
+        root.then(season);
+
         // --- information -----------------------------------------------------------------------
         root.then(literal("status").executes(LWCommands::status));
 
@@ -123,6 +180,32 @@ public final class LWCommands {
         ServerClimateSynchronizer.broadcast(ctx.getSource().getWorld());
         ctx.getSource().sendFeedback(() -> Text.literal("[Living World] ").formatted(Formatting.AQUA)
                 .append(Text.literal(message).formatted(Formatting.WHITE)), true);
+    }
+
+    private static void seasonChanged(CommandContext<ServerCommandSource> ctx, String message) {
+        ServerClimateSynchronizer.refreshSeasons(ctx.getSource().getServer());
+        ctx.getSource().sendFeedback(() -> Text.literal("[Living World] ").formatted(Formatting.AQUA)
+                .append(Text.literal(message).formatted(Formatting.WHITE)), true);
+    }
+
+    /** "day 3 of 8 of autumn", or that seasons are off. */
+    private static String describeSeason(net.minecraft.server.MinecraftServer server) {
+        float phase = SeasonState.yearPhase(server);
+        if (phase < 0f) {
+            return "seasons off";
+        }
+        float days = SeasonState.seasonDays();
+        ServerConfig config = ServerConfig.get();
+        return String.format(Locale.ROOT, "%s, day %d of %s%s%s", Seasons.of(phase).id(), Seasons.dayOfSeason(phase, days),
+                days == Math.rint(days) ? String.valueOf((int) days) : String.format(Locale.ROOT, "%.2f", days),
+                config.seasonalCrops ? ", seasonal crops" : "", config.seasonalSnowAndIce ? ", real snow and ice" : "");
+    }
+
+    private static int seasonInfo(CommandContext<ServerCommandSource> ctx) {
+        String text = describeSeason(ctx.getSource().getServer());
+        ctx.getSource().sendFeedback(() -> Text.literal("[Living World] ").formatted(Formatting.AQUA)
+                .append(Text.literal(text).formatted(Formatting.WHITE)), false);
+        return 1;
     }
 
     private static int setWeather(CommandContext<ServerCommandSource> ctx, WeatherType type, float intensity, int seconds) {
@@ -178,6 +261,7 @@ public final class LWCommands {
         if (forecast >= 0) {
             sb.append(String.format(Locale.ROOT, " | rain in %d s", forecast / 20));
         }
+        sb.append(" | ").append(describeSeason(player.getServer()));
         sb.append(ServerConfig.get().temperatureEffects ? " | survival rules ON" : " | survival rules off");
         String text = sb.toString();
         ctx.getSource().sendFeedback(() -> Text.literal("[Living World] ").formatted(Formatting.AQUA)

@@ -9,6 +9,7 @@ import dev.livingworld.client.debug.DebugHud;
 import dev.livingworld.client.env.ClientEnvironment;
 import dev.livingworld.client.gui.LWConfigScreen;
 import dev.livingworld.client.player.PlayerExposure;
+import dev.livingworld.climate.Seasons;
 import dev.livingworld.climate.SimulationOverrides;
 import dev.livingworld.climate.WeatherType;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
@@ -75,6 +76,28 @@ public final class ClientCommands {
                     return 1;
                 })));
 
+        LiteralArgumentBuilder<FabricClientCommandSource> season = literal("season").executes(ctx -> {
+            say(ctx.getSource(), describeSeason());
+            return 1;
+        });
+        LiteralArgumentBuilder<FabricClientCommandSource> seasonSet = literal("set");
+        for (Seasons.Season s : Seasons.Season.VALUES) {
+            seasonSet.then(literal(s.id()).executes(ctx -> {
+                ClientEnvironment e = ClientEnvironment.INSTANCE;
+                float days = e.seasonDays > 0f ? e.seasonDays : Seasons.DEFAULT_DAYS_PER_SEASON;
+                e.localSeasonOffsetDays = Seasons.offsetFor(s, e.timeOfDay, days);
+                say(ctx.getSource(), "Your own calendar now stands in the middle of " + s.id() + " (only you see this).");
+                return 1;
+            }));
+        }
+        season.then(seasonSet);
+        season.then(literal("clear").executes(ctx -> {
+            ClientEnvironment.INSTANCE.localSeasonOffsetDays = Float.NaN;
+            say(ctx.getSource(), "Local calendar cleared; following the world's seasons again.");
+            return 1;
+        }));
+        root.then(season);
+
         LiteralArgumentBuilder<FabricClientCommandSource> debug = literal("debug");
         for (String mode : new String[]{"atmosphere", "footprints", "audio", "off"}) {
             debug.then(literal(mode).executes(ctx -> {
@@ -98,12 +121,25 @@ public final class ClientCommands {
         }));
         root.then(literal("status").executes(ctx -> {
             ClientEnvironment e = ClientEnvironment.INSTANCE;
-            say(ctx.getSource(), String.format(Locale.ROOT, "%s | air %.1f°C (feels %.1f°C) | wind %.2f | humidity %.0f%% | %s",
-                    e.dominant, e.ambientC, PlayerExposure.INSTANCE.feelsLikeC, e.windLocal, e.humidity * 100f, e.weatherType.id()));
+            say(ctx.getSource(), String.format(Locale.ROOT, "%s | air %.1f°C (feels %.1f°C) | wind %.2f | humidity %.0f%% | %s | %s",
+                    e.dominant, e.ambientC, PlayerExposure.INSTANCE.feelsLikeC, e.windLocal, e.humidity * 100f, e.weatherType.id(),
+                    describeSeason()));
             return 1;
         }));
 
         dispatcher.register(root);
+    }
+
+    /** "autumn, day 3 of 8", or why there is no season here. */
+    public static String describeSeason() {
+        ClientEnvironment e = ClientEnvironment.INSTANCE;
+        if (!e.seasonsActive) {
+            return "no seasons here";
+        }
+        float days = e.seasonDays;
+        return String.format(Locale.ROOT, "%s, day %d of %s%s", e.season.id(), Seasons.dayOfSeason(e.yearPhase, days),
+                days == Math.rint(days) ? String.valueOf((int) days) : String.format(Locale.ROOT, "%.2f", days),
+                Float.isNaN(e.localSeasonOffsetDays) ? "" : " (your own calendar)");
     }
 
     private static SimulationOverrides local() {

@@ -24,6 +24,25 @@ public final class ServerConfig {
      * the dry spells between storms.
      */
     public float stormFrequency = 1f;
+    /** Whether the year has seasons (temperature, snow instead of rain in winter, foliage colours on clients). */
+    public boolean seasons = true;
+    /** Length of one season in Minecraft days. Change it in-game with {@code /livingworld season length}. */
+    public float seasonLengthDays = 8f;
+    /**
+     * Crops, stems, saplings, berry bushes and cocoa grow with the year: faster in spring, slowly in
+     * autumn, hardly at all in winter. Off by default.
+     */
+    public boolean seasonalCrops = false;
+    /**
+     * Winter changes the world: snow settles and builds up while it snows where the season makes it cold
+     * enough, and still water freezes over; both go again in the thaw. Off by default: it is the only
+     * setting that makes the mod place and remove blocks. Only blocks it placed itself are ever removed.
+     */
+    public boolean seasonalSnowAndIce = false;
+    /** How deep seasonal snow may build up, in layers (8 layers = one block). */
+    public int maxSnowLayers = 2;
+    /** How many columns near each player the seasons look at per tick: more makes snow and thaw faster. */
+    public int seasonalChangeRate = 16;
     /** Permission level required for the world-affecting /livingworld sub-commands. */
     public int commandPermissionLevel = 2;
 
@@ -43,6 +62,9 @@ public final class ServerConfig {
     private void sanitize() {
         exhaustionScale = LWMath.clamp(exhaustionScale, 0f, 4f);
         stormFrequency = LWMath.clamp(stormFrequency, 0.1f, 10f);
+        seasonLengthDays = Float.isNaN(seasonLengthDays) ? 8f : LWMath.clamp(seasonLengthDays, 0.25f, 400f);
         commandPermissionLevel = Math.max(0, Math.min(4, commandPermissionLevel));
+        maxSnowLayers = Math.max(1, Math.min(8, maxSnowLayers));
+        seasonalChangeRate = Math.max(1, Math.min(256, seasonalChangeRate));
     }
 }

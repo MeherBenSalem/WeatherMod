@@ -5,6 +5,7 @@ import dev.livingworld.client.config.QualityManager;
 import dev.livingworld.climate.BiomeProfile.Kind;
 import dev.livingworld.climate.ClimateMath;
 import dev.livingworld.util.LWMath;
+import dev.livingworld.util.Noise;
 
 /**
  * The unified atmosphere controller. From the shared {@link ClientEnvironment} it derives everything
@@ -57,6 +58,39 @@ public final class Atmosphere {
     public float wetSurfaces;
     public float puddles;
     public float snowCover;
+    /** The part of {@link #snowCover} that winter keeps on cold ground between snowfalls, 0..1. */
+    public float lyingSnow;
+
+    // ---- sky ------------------------------------------------------------------------------------
+    /** True while the mod draws its own cloud layer (and the vanilla one is switched off). */
+    public boolean cloudsDrawn;
+    /** How much of the sky the cloud layer covers, 0 clear .. 1 overcast. */
+    public float cloudCoverage;
+    /** World height of the cloud base and how tall the clouds stand above it, in blocks. */
+    public float cloudBase = 192f;
+    public float cloudThickness = 90f;
+    /** Light the sun or moon puts on the clouds, and the light of the sky around them. */
+    public float cloudLitR = 1f, cloudLitG = 1f, cloudLitB = 1f;
+    public float cloudAmbientR = 0.5f, cloudAmbientG = 0.6f, cloudAmbientB = 0.75f;
+    /** The clouds' overall colour seen from the ground: what water and puddles mirror. */
+    public float cloudSeenR = 0.9f, cloudSeenG = 0.9f, cloudSeenB = 0.92f;
+    /** How strongly clouds shade the ground under them, 0..1. */
+    public float cloudShadow;
+    /** Extra stars and the Milky Way, 0..1. */
+    public float starlight;
+    /** Northern lights, 0..1. */
+    public float aurora;
+    /** A rainbow opposite a low sun while the air is still wet, 0..1. */
+    public float rainbow;
+    /** How much the enhanced sky colours are applied, 0..1. */
+    public float skyColours;
+    /** Test hook: holds the aurora at this strength regardless of the night's own activity (negative = off). */
+    public static float forceAurora = -1f;
+    /** Test hook: holds the fair-weather cloud cover at this value (negative = let it wander). */
+    public static float forceFairCover = -1f;
+
+    private static final int SEED_FAIR = 0x61C8A7;
+    private static final int SEED_AURORA = 0x2B9D43;
 
     private final float[] dust = new float[3];
     private float accR, accG, accB, accD;
@@ -242,7 +276,8 @@ public final class Atmosphere {
         heatShimmer += (shimmer - heatShimmer) * k;
 
         // ---- clouds, shafts, wetness ---------------------------------------------------------
-        boolean deck = c.stormClouds && QualityManager.preset().clouds && e.natural;
+        // The flat overcast deck is only for when the mod is not drawing a cloud layer of its own.
+        boolean deck = c.stormClouds && QualityManager.preset().clouds && e.natural && !cloudsDrawn;
         cloudDeck += ((deck ? e.cloudCover : 0f) - cloudDeck) * k;
         cloudDarkness = 0.35f + 0.65f * e.storm;
 
@@ -257,6 +292,92 @@ public final class Atmosphere {
         boolean wet = QualityManager.preset().wetness;
         wetSurfaces = wet && c.wetSurfaces ? LWMath.clamp01(Math.max(e.wetness, e.rain * 1.5f)) : 0f;
         puddles = wet && c.puddles ? e.wetness : 0f;
-        snowCover = wet && c.snowCover ? e.snowCover : 0f;
+        // In winter, cold ground keeps a covering of snow between snowfalls: a dusting where the days
+        // climb back above freezing, a full blanket where they do not.
+        float dailyMean = e.meanC + e.seasonOffsetC + (e.natural ? ClimateMath.altitudeOffset(e.camY) : 0f);
+        float lying = e.seasonsActive ? e.winter * LWMath.smoothstep(7f, -1f, dailyMean) * 0.85f : 0f;
+        lyingSnow += (lying - lyingSnow) * k;
+        snowCover = wet && c.snowCover ? Math.max(e.snowCover, lyingSnow * (1f - e.cave)) : 0f;
+
+        tickSky(e, c, k);
+    }
+
+    /** The drawn cloud layer, the light on it, and the things that only show in a clear sky. */
+    private void tickSky(ClientEnvironment e, ClientConfig c, float k) {
+        net.minecraft.client.world.ClientWorld world = net.minecraft.client.MinecraftClient.getInstance().world;
+        float height = world != null ? world.getDimensionEffects().getCloudsHeight() : Float.NaN;
+        // A player who has switched clouds off in the video settings gets no clouds from the mod either.
+        boolean wanted = net.minecraft.client.MinecraftClient.getInstance().options.getCloudRenderModeValue()
+                != net.minecraft.client.option.CloudRenderMode.OFF;
+        cloudsDrawn = c.enabled && c.volumetricClouds && wanted && QualityManager.preset().cloudSteps > 0 && e.natural
+                && !Float.isNaN(height) && dev.livingworld.client.render.PostProcessor.available();
+        if (!Float.isNaN(height)) {
+            cloudBase = height;
+        }
+
+        // Fair-weather cloud comes and goes over a quarter of an hour and is thicker in humid air; real
+        // weather then closes the sky over it.
+        float wander = Noise.fbm1(e.worldTime / 20.0 / 420.0 + 31.0, 2, SEED_FAIR ^ e.salt);
+        float fair = LWMath.clamp(0.1f + 0.28f * e.humidity + 0.42f * (wander - 0.42f), 0.03f, 0.62f);
+        if (forceFairCover >= 0f) {
+            fair = forceFairCover;
+        }
+        float weather = LWMath.clamp01(e.cloudCover);
+        float coverage = fair + (1f - fair) * (float) Math.pow(weather, 0.75);
+        cloudCoverage += ((cloudsDrawn ? coverage : 0f) - cloudCoverage) * k;
+        cloudThickness += ((80f + 90f * weather) - cloudThickness) * k;
+
+        float sy = e.sunElevation;
+        float low = LWMath.smoothstep(0.42f, 0.03f, sy) * LWMath.smoothstep(-0.16f, 0.02f, sy);
+        float sunPower = LWMath.smoothstep(-0.14f, 0.07f, sy);
+        float gloom = e.storm * weather;
+        // Sunlight: white at noon, gold and then rose as the sun goes down; after dusk only the moon is left.
+        float sr = 1f, sg = LWMath.lerp(0.98f, 0.63f, low), sb = LWMath.lerp(0.94f, 0.38f, low);
+        float moon = 0.32f * (1f - sunPower);
+        float direct = (1f - 0.62f * gloom) * (1f - 0.5f * e.sand);
+        float lr = (sr * sunPower + 0.3f * moon * 1.5f) * direct;
+        float lg = (sg * sunPower + 0.38f * moon * 1.5f) * direct;
+        float lb = (sb * sunPower + 0.58f * moon * 1.5f) * direct;
+        // Light of the sky itself: blue by day, violet at dusk, almost nothing at night.
+        float dayAmount = LWMath.smoothstep(0f, 0.32f, sy);
+        float duskAmount = LWMath.smoothstep(-0.2f, 0f, sy) * (1f - dayAmount);
+        float skyDim = (1f - 0.4f * gloom) * (1f - 0.25f * weather);
+        float ar = (0.6f * dayAmount + 0.2f * duskAmount + 0.03f) * skyDim;
+        float ag = (0.65f * dayAmount + 0.17f * duskAmount + 0.04f) * skyDim;
+        float ab = (0.74f * dayAmount + 0.25f * duskAmount + 0.07f) * skyDim;
+        cloudLitR += (lr - cloudLitR) * k;
+        cloudLitG += (lg - cloudLitG) * k;
+        cloudLitB += (lb - cloudLitB) * k;
+        cloudAmbientR += (ar - cloudAmbientR) * k;
+        cloudAmbientG += (ag - cloudAmbientG) * k;
+        cloudAmbientB += (ab - cloudAmbientB) * k;
+        // From underneath a cloud is mostly sky-lit, with less of the sun getting through as it thickens.
+        float through = 0.42f * (1f - 0.7f * cloudCoverage);
+        cloudSeenR = LWMath.clamp01(cloudAmbientR * 1.05f + cloudLitR * through);
+        cloudSeenG = LWMath.clamp01(cloudAmbientG * 1.05f + cloudLitG * through);
+        cloudSeenB = LWMath.clamp01(cloudAmbientB * 1.05f + cloudLitB * through);
+
+        float shadow = cloudsDrawn && c.cloudShadows ? e.daylight * (1f - 0.75f * weather) * (1f - e.cave) : 0f;
+        cloudShadow += (shadow - cloudShadow) * k;
+
+        boolean sky = c.enabled && c.enhancedSky && e.natural;
+        float clear = (1f - LWMath.clamp01(e.precip * 2f)) * (1f - skyColorMix);
+        skyColours += ((sky ? 1f : 0f) - skyColours) * k;
+        starlight += ((sky ? LWMath.smoothstep(-0.02f, -0.3f, sy) * clear : 0f) - starlight) * k;
+
+        // Northern lights: clear, cold nights only, and not every night.
+        float activity = LWMath.smoothstep(0.42f, 0.7f, Noise.fbm1(e.worldTime / 20.0 / 500.0 + 7.0, 2, SEED_AURORA ^ e.salt));
+        float cold = LWMath.smoothstep(4f, -6f, e.meanC + e.seasonOffsetC);
+        float lights = sky && c.aurora ? LWMath.smoothstep(-0.1f, -0.35f, sy) * clear * cold * activity * (1f - weather) : 0f;
+        if (forceAurora >= 0f && sky) {
+            lights = forceAurora;
+        }
+        aurora += (lights - aurora) * k;
+
+        // A rainbow needs sun from low behind you and rain (or air still full of it) ahead.
+        float sunAngle = LWMath.smoothstep(0.03f, 0.2f, sy) * (1f - LWMath.smoothstep(0.5f, 0.66f, sy));
+        float moisture = LWMath.clamp01(Math.max(e.rain * 3f, e.wetness * 2.2f - 0.2f));
+        float bow = sky ? sunAngle * moisture * (1f - LWMath.smoothstep(0.45f, 0.95f, weather)) * (1f - e.storm) * e.openness : 0f;
+        rainbow += (bow - rainbow) * (1f - (float) Math.exp(-0.25f * DT));
     }
 }

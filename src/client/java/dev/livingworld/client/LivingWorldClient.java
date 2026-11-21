@@ -63,7 +63,6 @@ public final class LivingWorldClient implements ClientModInitializer {
     public void onInitializeClient() {
         ClientConfig.get();
         LWShaders.init();
-        FootprintTracker.INSTANCE.listener = EnvironmentAudio.INSTANCE;
         AmbientSpawner.INSTANCE.listener = EnvironmentAudio.INSTANCE;
 
         VegetationWind.init();

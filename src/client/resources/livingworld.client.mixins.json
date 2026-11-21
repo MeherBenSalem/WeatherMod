@@ -6,6 +6,7 @@
     "AbstractSoundInstanceAccessor",
     "BackgroundRendererMixin",
     "ClientWorldMixin",
+    "CloudRenderMixin",
     "FluidRendererMixin",
     "GameRendererMixin",
     "ItemEntityRendererMixin",

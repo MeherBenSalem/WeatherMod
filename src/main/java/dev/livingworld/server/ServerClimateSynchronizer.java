@@ -44,6 +44,8 @@ public final class ServerClimateSynchronizer {
     public static void sendTo(ServerPlayerEntity player) {
         SimulationOverrides state = get(player.getServerWorld());
         state.gameplayEffects = ServerConfig.get().temperatureEffects;
+        state.seasonDays = SeasonState.seasonDays();
+        state.seasonOffsetDays = SeasonState.get(player.getServer()).offsetDays;
         LWNetworking.sendState(player, state);
     }
 
@@ -52,6 +54,16 @@ public final class ServerClimateSynchronizer {
         SimulationOverrides state = get(world);
         for (ServerPlayerEntity player : world.getPlayers()) {
             LWNetworking.sendState(player, state);
+        }
+    }
+
+    /** Pushes a change to the calendar (a command, an edited config) to every player at once. */
+    public static void refreshSeasons(net.minecraft.server.MinecraftServer server) {
+        for (ServerWorld world : server.getWorlds()) {
+            SimulationOverrides state = get(world);
+            state.seasonDays = SeasonState.seasonDays();
+            state.seasonOffsetDays = SeasonState.get(server).offsetDays;
+            broadcast(world);
         }
     }
 
@@ -96,6 +108,14 @@ public final class ServerClimateSynchronizer {
         boolean gameplay = ServerConfig.get().temperatureEffects;
         if (gameplay != state.gameplayEffects) {
             state.gameplayEffects = gameplay;
+            dirty = true;
+        }
+
+        float seasonDays = SeasonState.seasonDays();
+        float seasonOffset = SeasonState.get(world.getServer()).offsetDays;
+        if (seasonDays != state.seasonDays || seasonOffset != state.seasonOffsetDays) {
+            state.seasonDays = seasonDays;
+            state.seasonOffsetDays = seasonOffset;
             dirty = true;
         }
 

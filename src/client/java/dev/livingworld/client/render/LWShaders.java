@@ -25,6 +25,8 @@ public final class LWShaders {
     public static ShaderProgram overlay;
     /** Bright-pass and blur for bloom. */
     public static ShaderProgram bloom;
+    /** The cloud layer on its own, for the half-resolution cloud buffer. */
+    public static ShaderProgram clouds;
 
     private LWShaders() {
     }
@@ -44,7 +46,9 @@ public final class LWShaders {
             post = null;
             overlay = null;
             bloom = null;
+            clouds = null;
             register(context, "bloom", VertexFormats.POSITION_TEXTURE, p -> bloom = p);
+            register(context, "clouds", VertexFormats.POSITION_TEXTURE, p -> clouds = p);
             register(context, "decal", VertexFormats.POSITION_COLOR_TEXTURE_LIGHT_NORMAL, p -> decal = p);
             register(context, "fx", VertexFormats.POSITION_TEXTURE_COLOR_LIGHT, p -> fx = p);
             register(context, "post", VertexFormats.POSITION_TEXTURE, p -> post = p);
@@ -67,7 +71,7 @@ public final class LWShaders {
 
     public static String status() {
         return "decal=" + (decal != null) + " fx=" + (fx != null) + " post=" + (post != null) + " overlay=" + (overlay != null)
-                + " bloom=" + (bloom != null);
+                + " bloom=" + (bloom != null) + " clouds=" + (clouds != null);
     }
 
     public static void set(ShaderProgram program, String name, float a) {

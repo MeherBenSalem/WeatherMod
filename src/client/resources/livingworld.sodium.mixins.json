@@ -1,0 +1,15 @@
+{
+  "required": false,
+  "package": "dev.livingworld.client.compat.sodium.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "plugin": "dev.livingworld.client.compat.sodium.SodiumMixinPlugin",
+  "client": [
+    "SodiumBlockRendererMixin",
+    "SodiumChunkRendererMixin",
+    "SodiumFluidRendererMixin",
+    "SodiumShaderLoaderMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

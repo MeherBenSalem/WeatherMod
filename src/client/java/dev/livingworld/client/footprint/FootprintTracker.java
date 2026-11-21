@@ -61,12 +61,6 @@ import java.util.concurrent.ThreadLocalRandom;
 public final class FootprintTracker {
     public static final FootprintTracker INSTANCE = new FootprintTracker();
 
-    /** Receives footsteps of players so the audio layer can add material-specific sound. */
-    public interface StepListener {
-        void onStep(SurfaceMaterial material, boolean muddy, boolean puddle, float intensity, double x, double y, double z,
-                    boolean localPlayer);
-    }
-
     private static final class Track {
         boolean initialised;
         double lastX, lastY, lastZ;
@@ -83,6 +77,8 @@ public final class FootprintTracker {
         long seen;
     }
 
+    public final DecalStore decals = new DecalStore(QualityPreset.MAX_DECALS);
+
     /** Result of looking at the ground under an entity. */
     private SurfaceMaterial material = SurfaceMaterial.NONE;
     private double surfaceY;
@@ -90,8 +86,6 @@ public final class FootprintTracker {
     private int snowLayers;
     private int light;
 
-    public final DecalStore decals = new DecalStore(QualityPreset.MAX_DECALS);
-    public StepListener listener;
     private final Int2ObjectOpenHashMap<Track> tracks = new Int2ObjectOpenHashMap<>();
     private final BlockPos.Mutable pos = new BlockPos.Mutable();
     private long tick;
@@ -476,9 +470,6 @@ public final class FootprintTracker {
             int n = intensity < 0.3f ? 1 : intensity < 0.7f ? 2 : 5;
             kick(world, env, m, muddy, puddle, px, surfaceY, pz, dirX, dirZ, moved, intensity, n, scale);
         }
-        if (listener != null && e instanceof PlayerEntity) {
-            listener.onStep(m, muddy, puddle, intensity, px, surfaceY, pz, local);
-        }
     }
 
     private void land(ClientWorld world, ClientEnvironment env, ClientConfig config, Entity e, Track t, float fall, boolean local) {
@@ -518,9 +509,6 @@ public final class FootprintTracker {
                 kick(world, env, m, muddy, puddle, e.getX() + MathHelper.cos(a) * 0.2 * scale, surfaceY,
                         e.getZ() + MathHelper.sin(a) * 0.2 * scale, -MathHelper.cos(a), -MathHelper.sin(a), 0.22f, 1f, n / 4, scale);
             }
-        }
-        if (listener != null && e instanceof PlayerEntity) {
-            listener.onStep(m, muddy, puddle, 1f, e.getX(), surfaceY, e.getZ(), local);
         }
     }
 

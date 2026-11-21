@@ -1,0 +1,5 @@
+Put your bird recordings here as mono Ogg Vorbis files: bird_01.ogg, bird_02.ogg, bird_03.ogg ...
+
+Every file listed under "wildlife.birds" in assets/livingworld/sounds.json must exist in this folder.
+Remove the entries you have no file for, or remove "wildlife.birds" altogether to keep the synthesised birds.
+See docs/SAMPLE_PACK.md in the Living World repository.

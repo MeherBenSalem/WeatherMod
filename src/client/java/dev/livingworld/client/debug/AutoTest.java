@@ -17,6 +17,7 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.texture.NativeImage;
 import net.minecraft.client.tutorial.TutorialStep;
 import net.minecraft.client.util.ScreenshotRecorder;
 import net.minecraft.registry.RegistryKey;
@@ -62,6 +63,11 @@ public final class AutoTest {
     private static final String ONLY = System.getProperty("livingworld.autotest.only", "");
     /** The cinematic tour: only runs when asked for by name (-PlwScenes=showcase), never as part of a test run. */
     static final boolean SHOWCASE = ("," + ONLY + ",").contains(",showcase,");
+    /**
+     * The listing captures (see {@link Marketing}): run by name only, either all of them
+     * (-PlwScenes=marketing) or a few (-PlwScenes=mk_water,mk_sky).
+     */
+    static final boolean MARKETING = ("," + ONLY + ",").contains(",marketing,") || ("," + ONLY).contains(",mk_");
     private static final String WORLD = "lw_autotest";
     private static final long SEED = 8765432123456L;
 
@@ -112,7 +118,7 @@ public final class AutoTest {
     private static void tick(MinecraftClient client) {
         totalTicks++;
         try {
-            if (totalTicks > 20L * 60L * (SHOWCASE ? 35L : 14L)) {
+            if (totalTicks > 20L * 60L * (SHOWCASE || MARKETING ? 45L : 30L)) {
                 log("FAIL: global timeout");
                 failures++;
                 finish(client);
@@ -134,7 +140,12 @@ public final class AutoTest {
                             || client.currentScreen instanceof net.minecraft.client.gui.screen.GameMenuScreen) {
                         client.setScreen(null);
                     }
-                    if (SHOWCASE) {
+                    // A run looks where the script points it, whatever the mouse does meanwhile: with the
+                    // cursor released, moving the mouse over the window does not turn the view.
+                    if (client.mouse.isCursorLocked()) {
+                        client.mouse.unlockCursor();
+                    }
+                    if (SHOWCASE || MARKETING) {
                         // Advancement and recipe pop-ups have no place in the pictures.
                         client.getToastManager().clear();
                     }
@@ -169,7 +180,7 @@ public final class AutoTest {
         client.options.onboardAccessibility = false;
         client.options.tutorialStep = TutorialStep.NONE;
         client.getTutorialManager().setStep(TutorialStep.NONE);
-        client.options.getViewDistance().setValue(SHOWCASE ? 10 : 8);
+        client.options.getViewDistance().setValue(MARKETING ? 14 : SHOWCASE ? 10 : 8);
         client.options.getEnableVsync().setValue(false);
         client.options.getMaxFps().setValue(260);
         // The showcase is meant to be watched and heard; test runs stay nearly silent.
@@ -274,6 +285,108 @@ public final class AutoTest {
             });
             return true;
         });
+    }
+
+    // ---- clips: short runs of frames, and how much the picture changes across them -----------------
+
+    /** Share of sampled pixels that changed visibly from one frame of the last clip to the next (mean). */
+    static float clipChange;
+    /**
+     * Share of sampled pixels in the last clip that changed and then changed straight back (frame n
+     * differs from n+1 but matches n+2): flicker, as opposed to motion.
+     */
+    static float clipFlicker;
+
+    /** A clip of the whole frame. See {@link #clip(String, int, int, float, float)}. */
+    static void clip(String name, int frames, int everyTicks) {
+        clip(name, frames, everyTicks, 0f, 1f);
+    }
+
+    /**
+     * Saves {@code frames} screenshots, one every {@code everyTicks} ticks, to
+     * {@code clips/<name>/f000.png ...}, and measures how much the picture moves between them. A still
+     * shows that an effect is drawn; only a run of frames shows that it moves the way it should (water
+     * that races in a calm looks fine in any single frame).
+     *
+     * @param top    upper edge of the band of the frame that is measured, 0 = top of the screen
+     * @param bottom lower edge of that band, 1 = bottom of the screen
+     */
+    static void clip(String name, int frames, int everyTicks, float top, float bottom) {
+        add(new Step() {
+            private float[] previous;
+            private float[] beforePrevious;
+            private int taken;
+            private double changed;
+            private double flickered;
+            private int pairs;
+            private int triples;
+
+            @Override
+            public boolean run(MinecraftClient client, int t) {
+                if (t % everyTicks != 0) {
+                    return false;
+                }
+                NativeImage image = ScreenshotRecorder.takeScreenshot(client.getFramebuffer());
+                float[] luma = sampleLuma(image, top, bottom);
+                if (previous != null && previous.length == luma.length) {
+                    int moved = 0, back = 0;
+                    boolean three = beforePrevious != null && beforePrevious.length == luma.length;
+                    for (int i = 0; i < luma.length; i++) {
+                        if (Math.abs(luma[i] - previous[i]) > 12f) {
+                            moved++;
+                        }
+                        if (three && Math.abs(previous[i] - beforePrevious[i]) > 12f && Math.abs(luma[i] - beforePrevious[i]) < 5f) {
+                            back++;
+                        }
+                    }
+                    changed += moved / (double) luma.length;
+                    pairs++;
+                    if (three) {
+                        flickered += back / (double) luma.length;
+                        triples++;
+                    }
+                }
+                beforePrevious = previous;
+                previous = luma;
+
+                java.io.File dir = outDir.resolve("clips").resolve(name).toFile();
+                dir.mkdirs();
+                java.io.File file = new java.io.File(dir, String.format(Locale.ROOT, "f%03d.png", taken));
+                net.minecraft.util.Util.getIoWorkerExecutor().execute(() -> {
+                    try {
+                        image.writeTo(file);
+                    } catch (Exception e) {
+                        LivingWorld.LOGGER.warn("Could not save clip frame {}", file, e);
+                    } finally {
+                        image.close();
+                    }
+                });
+                if (++taken < frames) {
+                    return false;
+                }
+                clipChange = pairs > 0 ? (float) (changed / pairs) : 0f;
+                clipFlicker = triples > 0 ? (float) (flickered / triples) : 0f;
+                log(String.format(Locale.ROOT, "clip %s: %d frames %d tick(s) apart; %.1f%% of the picture changes per frame, %.2f%% flickers",
+                        name, taken, everyTicks, clipChange * 100f, clipFlicker * 100f));
+                return true;
+            }
+        });
+    }
+
+    /** Brightness of every fourth pixel of a band of the frame. */
+    private static float[] sampleLuma(NativeImage image, float top, float bottom) {
+        int w = image.getWidth(), h = image.getHeight();
+        int y0 = Math.max(0, Math.round(top * h)), y1 = Math.min(h, Math.round(bottom * h));
+        int columns = (w + 3) / 4, rows = Math.max(0, (y1 - y0 + 3) / 4);
+        float[] out = new float[columns * rows];
+        int n = 0;
+        for (int y = y0; y < y1; y += 4) {
+            for (int x = 0; x < w; x += 4) {
+                int c = image.getColor(x, y);
+                out[n++] = (c & 255) * 0.299f + ((c >> 8) & 255) * 0.587f + ((c >> 16) & 255) * 0.114f;
+            }
+        }
+        return n == out.length ? out : java.util.Arrays.copyOf(out, n);
     }
 
     /** Records the state of every system and checks for GL errors. */
@@ -597,6 +710,195 @@ public final class AutoTest {
             }
         }
         return bestOpen >= 35 ? best : null;
+    }
+
+    /**
+     * Makes the window borderless with exactly this many pixels to draw on. A window with a title bar
+     * cannot be as large as the screen it is on, so this is how a 1920x1080 picture is taken on a
+     * 1920x1080 monitor (without the mode switch, and the minimising on loss of focus, of real
+     * fullscreen).
+     *
+     * <p>The window is put just past the right-hand edge of the primary monitor: the game draws into its
+     * own buffer whether or not the window can be seen, and a window that covered the whole screen for a
+     * quarter of an hour would both be in the way and pick up every click meant for something else. Run
+     * with {@code -Dlivingworld.autotest.onscreen=true} to watch it at the top-left corner instead.
+     */
+    static void borderless(int width, int height) {
+        add((client, t) -> {
+            long handle = client.getWindow().getHandle();
+            org.lwjgl.glfw.GLFW.glfwSetWindowAttrib(handle, org.lwjgl.glfw.GLFW.GLFW_DECORATED, org.lwjgl.glfw.GLFW.GLFW_FALSE);
+            int x = 0;
+            if (!Boolean.getBoolean("livingworld.autotest.onscreen")) {
+                org.lwjgl.glfw.GLFWVidMode mode = org.lwjgl.glfw.GLFW.glfwGetVideoMode(org.lwjgl.glfw.GLFW.glfwGetPrimaryMonitor());
+                x = mode != null ? mode.width() : 0;
+            }
+            org.lwjgl.glfw.GLFW.glfwSetWindowPos(handle, x, 0);
+            org.lwjgl.glfw.GLFW.glfwSetWindowSize(handle, width, height);
+            return true;
+        });
+        waitTicks(20);
+        add((client, t) -> {
+            log("window: " + client.getWindow().getFramebufferWidth() + "x" + client.getWindow().getFramebufferHeight());
+            return true;
+        });
+    }
+
+    /**
+     * A run of frames while the clock is moved from one time of day to another: a time-lapse. Frames go
+     * to {@code clips/<name>/f000.png ...}.
+     */
+    static void timelapse(String name, int frames, int everyTicks, int fromTime, int toTime) {
+        for (int i = 0; i < frames; i++) {
+            int time = fromTime + Math.round((toTime - fromTime) * (i / (float) Math.max(1, frames - 1)));
+            cmd("time set " + time);
+            waitTicks(everyTicks);
+            String file = String.format(Locale.ROOT, "f%03d.png", i);
+            add((client, t) -> {
+                java.io.File dir = outDir.resolve("clips").resolve(name).toFile();
+                dir.mkdirs();
+                NativeImage image = ScreenshotRecorder.takeScreenshot(client.getFramebuffer());
+                net.minecraft.util.Util.getIoWorkerExecutor().execute(() -> {
+                    try {
+                        image.writeTo(new java.io.File(dir, file));
+                    } catch (Exception e) {
+                        LivingWorld.LOGGER.warn("Could not save time-lapse frame {}", file, e);
+                    } finally {
+                        image.close();
+                    }
+                });
+                return true;
+            });
+        }
+    }
+
+    /**
+     * Finds a place to stand that looks out over open water: the spot near the given biome with the
+     * most water in a fan toward {@code yaw}, a little above the waterline. Sunsets are in the west
+     * (yaw 90), so that is the direction to ask for when the sun should set over the water.
+     */
+    static void tpShore(String biomeId, float yaw, float pitch) {
+        onServer(player -> {
+            ServerWorld world = player.getServer().getOverworld();
+            RegistryKey<Biome> key = RegistryKey.of(RegistryKeys.BIOME, new Identifier(biomeId));
+            BlockPos origin = player.getWorld() == world ? player.getBlockPos() : BlockPos.ORIGIN;
+            Pair<BlockPos, RegistryEntry<Biome>> found = world.locateBiome(e -> e.matchesKey(key), origin, 6400, 32, 64);
+            if (found == null) {
+                return "FAIL: biome " + biomeId + " not found within 6400 blocks";
+            }
+            BlockPos around = found.getFirst();
+            int sea = world.getSeaLevel();
+            double rad = Math.toRadians(yaw);
+            double fx = -Math.sin(rad), fz = Math.cos(rad);
+            BlockPos.Mutable p = new BlockPos.Mutable();
+            BlockPos best = null;
+            double bestScore = -1.0;
+            for (int dx = -160; dx <= 160; dx += 4) {
+                for (int dz = -160; dz <= 160; dz += 4) {
+                    int x = around.getX() + dx, z = around.getZ() + dz;
+                    world.getChunk(x >> 4, z >> 4);
+                    int y = world.getTopY(Heightmap.Type.MOTION_BLOCKING_NO_LEAVES, x, z);
+                    if (y < sea || y > sea + 3 || !standable(world, p, x, y, z)) {
+                        continue;
+                    }
+                    int water = 0, total = 0;
+                    for (int fan = -30; fan <= 30; fan += 15) {
+                        double a = Math.toRadians(yaw + fan);
+                        double ax = -Math.sin(a), az = Math.cos(a);
+                        for (int d = 5; d <= 85; d += 8) {
+                            int sx = x + (int) Math.round(ax * d), sz = z + (int) Math.round(az * d);
+                            world.getChunk(sx >> 4, sz >> 4);
+                            int top = world.getTopY(Heightmap.Type.MOTION_BLOCKING, sx, sz);
+                            p.set(sx, top - 1, sz);
+                            total++;
+                            if (top <= sea && world.getFluidState(p).isIn(net.minecraft.registry.tag.FluidTags.WATER)) {
+                                water++;
+                            }
+                        }
+                    }
+                    // A little land just ahead makes a shoreline to look along; none at all is a pier's view.
+                    p.set(x + (int) Math.round(fx * 3), y - 1, z + (int) Math.round(fz * 3));
+                    double score = water / (double) total + (world.getFluidState(p).isEmpty() ? 0.04 : 0.0)
+                            - Math.sqrt(dx * dx + dz * dz) * 0.0004;
+                    if (score > bestScore) {
+                        bestScore = score;
+                        best = new BlockPos(x, y, z);
+                    }
+                }
+            }
+            if (best == null) {
+                return "FAIL: no shore found near " + around.toShortString();
+            }
+            player.teleport(world, best.getX() + 0.5, best.getY() + 0.05, best.getZ() + 0.5, yaw, pitch);
+            return String.format(Locale.ROOT, "teleported to a shore at %s (%.0f%% water ahead)", best.toShortString(), bestScore * 100.0);
+        });
+    }
+
+    /**
+     * Finds a place to stand that looks out over the land: the spot in the given biome with the longest
+     * clear view toward {@code yaw} from a few blocks up, over ground that falls away rather than rises.
+     */
+    static void tpOverlook(String biomeId, float yaw, float pitch) {
+        onServer(player -> {
+            ServerWorld world = player.getServer().getOverworld();
+            RegistryKey<Biome> key = RegistryKey.of(RegistryKeys.BIOME, new Identifier(biomeId));
+            BlockPos origin = player.getWorld() == world ? player.getBlockPos() : BlockPos.ORIGIN;
+            Pair<BlockPos, RegistryEntry<Biome>> found = world.locateBiome(e -> e.matchesKey(key), origin, 6400, 32, 64);
+            if (found == null) {
+                return "FAIL: biome " + biomeId + " not found within 6400 blocks";
+            }
+            BlockPos around = found.getFirst();
+            BlockPos.Mutable p = new BlockPos.Mutable();
+            BlockPos best = null;
+            double bestScore = -1.0e9;
+            for (int dx = -128; dx <= 128; dx += 4) {
+                for (int dz = -128; dz <= 128; dz += 4) {
+                    int x = around.getX() + dx, z = around.getZ() + dz;
+                    world.getChunk(x >> 4, z >> 4);
+                    int y = world.getTopY(Heightmap.Type.MOTION_BLOCKING_NO_LEAVES, x, z);
+                    p.set(x, y, z);
+                    if (!world.getBiome(p).matchesKey(key) || !standable(world, p, x, y, z)
+                            || world.getTopY(Heightmap.Type.MOTION_BLOCKING, x, z) != y) {
+                        continue;
+                    }
+                    double score = 0.0;
+                    boolean blocked = false;
+                    int inBiome = 0, samples = 0;
+                    for (int fan = -30; fan <= 30 && !blocked; fan += 15) {
+                        double a = Math.toRadians(yaw + fan);
+                        double ax = -Math.sin(a), az = Math.cos(a);
+                        for (int d = 3; d <= 75; d += 6) {
+                            int sx = x + (int) Math.round(ax * d), sz = z + (int) Math.round(az * d);
+                            world.getChunk(sx >> 4, sz >> 4);
+                            int top = world.getTopY(Heightmap.Type.MOTION_BLOCKING, sx, sz);
+                            // Nothing may stand in the way close by; further off, lower is better.
+                            if (d <= 9 && top > y + 1) {
+                                blocked = true;
+                                break;
+                            }
+                            score += Math.max(-10, Math.min(14, y + 2 - top));
+                            p.set(sx, top, sz);
+                            samples++;
+                            if (world.getBiome(p).matchesKey(key)) {
+                                inBiome++;
+                            }
+                        }
+                    }
+                    if (blocked || inBiome < samples * 0.7) {
+                        continue;
+                    }
+                    score -= Math.sqrt(dx * dx + dz * dz) * 0.05;
+                    if (score > bestScore) {
+                        bestScore = score;
+                        best = new BlockPos(x, y, z);
+                    }
+                }
+            }
+            if (best == null) {
+                return "FAIL: no overlook found near " + around.toShortString();
+            }
+            player.teleport(world, best.getX() + 0.5, best.getY() + 0.05, best.getZ() + 0.5, yaw, pitch);
+            return String.format(Locale.ROOT, "teleported to an overlook at %s (score %.0f)", best.toShortString(), bestScore);
+        });
     }
 
     /** Resizes the game window (benchmarks are run at a realistic resolution). */

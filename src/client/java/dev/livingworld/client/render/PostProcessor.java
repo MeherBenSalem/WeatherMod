@@ -39,6 +39,9 @@ import org.lwjgl.opengl.GL30;
 public final class PostProcessor {
     private static final Identifier NOISE = LivingWorld.id("textures/fx/noise.png");
 
+    /** The cloud layer's own frame repeats every this many blocks; every scale in lw_sky.glsl divides it. */
+    private static final double CLOUD_PERIOD = 6400.0;
+
     private static Framebuffer copy;
     private static final Matrix4f INVERSE = new Matrix4f();
     private static final Vector4f SUN = new Vector4f();
@@ -46,6 +49,27 @@ public final class PostProcessor {
     public static boolean lastRan;
 
     private PostProcessor() {
+    }
+
+    /** GL id of the tiling noise texture, set to smooth sampling. */
+    public static int noiseTexture() {
+        net.minecraft.client.texture.AbstractTexture texture = MinecraftClient.getInstance().getTextureManager().getTexture(NOISE);
+        texture.setFilter(true, false);
+        return texture.getGlId();
+    }
+
+    /**
+     * Where the camera sits in the cloud layer's frame: its position plus how far the wind has carried
+     * the clouds, wrapped. Shaders add camera-relative positions to this.
+     */
+    public static float cloudOriginX(double camX, float tickDelta) {
+        double v = camX + ClientEnvironment.INSTANCE.cloudTravelX(tickDelta);
+        return (float) (v - Math.floor(v / CLOUD_PERIOD) * CLOUD_PERIOD);
+    }
+
+    public static float cloudOriginZ(double camZ, float tickDelta) {
+        double v = camZ + ClientEnvironment.INSTANCE.cloudTravelZ(tickDelta);
+        return (float) (v - Math.floor(v / CLOUD_PERIOD) * CLOUD_PERIOD);
     }
 
     public static boolean available() {
@@ -91,6 +115,53 @@ public final class PostProcessor {
     }
 
     private static Framebuffer bloomA, bloomB;
+    private static Framebuffer cloudBuffer;
+    /** Whether the sky's clouds came from the reduced-resolution buffer last frame (debug). */
+    public static boolean lastCloudBuffer;
+
+    /** Everything the cloud layer needs, for whichever program is about to draw it. */
+    private static void cloudUniforms(ShaderProgram program, Vec3d cam, float tickDelta, float[] horizon) {
+        ClientEnvironment env = ClientEnvironment.INSTANCE;
+        Atmosphere atmosphere = Atmosphere.INSTANCE;
+        LWShaders.set(program, "CloudShape", atmosphere.cloudsDrawn ? atmosphere.cloudCoverage : 0f,
+                atmosphere.cloudBase - (float) cam.y, atmosphere.cloudThickness, QualityManager.preset().cloudSteps);
+        LWShaders.set(program, "CloudOrigin", cloudOriginX(cam.x, tickDelta), cloudOriginZ(cam.z, tickDelta), env.storm,
+                atmosphere.cloudShadow);
+        LWShaders.set(program, "CloudLit", atmosphere.cloudLitR, atmosphere.cloudLitG, atmosphere.cloudLitB, 0f);
+        LWShaders.set(program, "CloudAmbient", atmosphere.cloudAmbientR, atmosphere.cloudAmbientG, atmosphere.cloudAmbientB, 0f);
+        LWShaders.set(program, "Horizon", horizon[0], horizon[1], horizon[2], atmosphere.skyColours);
+        // Lightning, as a light at the place of the stroke.
+        float power = env.boltPower * ClientConfig.get().flashScale();
+        LWShaders.set(program, "Bolt", (float) (env.boltX - cam.x), (float) (env.boltY - cam.y), (float) (env.boltZ - cam.z), power);
+    }
+
+    /**
+     * Draws the cloud layer into a buffer at a share of the screen's resolution and returns its texture.
+     * The main pass then only has to look the clouds up for every pixel of open sky.
+     */
+    private static int cloudBuffer(Framebuffer source, Matrix4f inverseViewProj, Vec3d cam, float tickDelta, float[] horizon,
+                                   float sunX, float sunY, float sunZ, int noise, float scale) {
+        ShaderProgram program = LWShaders.clouds;
+        int w = Math.max(16, Math.round(source.textureWidth * scale)), h = Math.max(16, Math.round(source.textureHeight * scale));
+        if (cloudBuffer == null) {
+            cloudBuffer = new SimpleFramebuffer(w, h, false, MinecraftClient.IS_SYSTEM_MAC);
+            cloudBuffer.setTexFilter(GL11.GL_LINEAR);
+        } else if (cloudBuffer.textureWidth != w || cloudBuffer.textureHeight != h) {
+            cloudBuffer.resize(w, h, MinecraftClient.IS_SYSTEM_MAC);
+            cloudBuffer.setTexFilter(GL11.GL_LINEAR);
+        }
+        cloudBuffer.beginWrite(true);
+        program.addSampler("NoiseSampler", noise);
+        GlUniform inverse = program.getUniform("InvViewProj");
+        if (inverse != null) {
+            inverse.set(inverseViewProj);
+        }
+        cloudUniforms(program, cam, tickDelta, horizon);
+        LWShaders.set(program, "SunDir", sunX, sunY, sunZ);
+        drawFullscreen(program);
+        MinecraftClient.getInstance().getFramebuffer().beginWrite(true);
+        return cloudBuffer.getColorAttachment();
+    }
 
     private static Framebuffer scratch(Framebuffer target, int w, int h) {
         if (target == null) {
@@ -107,7 +178,7 @@ public final class PostProcessor {
      * Bloom: keeps the brightest parts of the frame at quarter resolution, blurs them with two rounds of a
      * separable Gaussian and returns the texture for the main pass to add back. Five small draws in total.
      */
-    private static int bloom(Framebuffer source, float threshold) {
+    private static int bloom(Framebuffer source, float threshold, float skyBloom) {
         ShaderProgram program = LWShaders.bloom;
         int w = Math.max(16, source.textureWidth / 4), h = Math.max(16, source.textureHeight / 4);
         bloomA = scratch(bloomA, w, h);
@@ -115,6 +186,8 @@ public final class PostProcessor {
 
         bloomA.beginWrite(true);
         program.addSampler("DiffuseSampler", source.getColorAttachment());
+        program.addSampler("DepthSampler", source.getDepthAttachment());
+        LWShaders.set(program, "SkyBloom", skyBloom);
         LWShaders.set(program, "Step", 1f / source.textureWidth, 1f / source.textureHeight);
         LWShaders.set(program, "Mode", 0f, threshold);
         drawFullscreen(program);
@@ -151,15 +224,15 @@ public final class PostProcessor {
         ShaderProgram program = LWShaders.post;
 
         Framebuffer source = copyMain(true);
-        client.getTextureManager().getTexture(NOISE).setFilter(true, false);
+        int noise = noiseTexture();
 
         // How bright the surroundings are: full daylight under open sky is 1, night and caves are 0.
         // Bloom is strong and eager in the dark (a torch glows) and restrained in daylight (only the sun,
         // sunlit snow, clouds and glitter on water bloom), the way an eye or a camera adapts.
         float bright = LWMath.clamp01(env.daylight * env.skyLight);
         boolean blooming = config.bloom && config.bloomStrength > 0.01f && LWShaders.bloom != null && QualityManager.preset().bloom;
-        int bloomTexture = blooming ? bloom(source, LWMath.lerp(0.74f, 0.86f, bright))
-                : client.getTextureManager().getTexture(NOISE).getGlId();
+        int bloomTexture = blooming ? bloom(source, LWMath.lerp(0.74f, 0.86f, bright), 1f - 0.88f * env.daylight)
+                : noise;
         program.addSampler("BloomSampler", bloomTexture);
         LWShaders.set(program, "Look", blooming ? config.bloomStrength * LWMath.lerp(0.62f, 0.42f, bright) : 0f,
                 config.filmLook, config.vignette, 0.22f);
@@ -168,10 +241,15 @@ public final class PostProcessor {
 
         program.addSampler("DiffuseSampler", source.getColorAttachment());
         program.addSampler("DepthSampler", source.getDepthAttachment());
-        program.addSampler("NoiseSampler", client.getTextureManager().getTexture(NOISE).getGlId());
+        program.addSampler("NoiseSampler", noise);
         program.addSampler("ColumnSampler", env.columns.textureId());
 
-        INVERSE.set(projection).mul(view).invert();
+        INVERSE.set(projection).mul(view);
+        GlUniform forward = program.getUniform("ViewProj");
+        if (forward != null) {
+            forward.set(INVERSE);
+        }
+        INVERSE.invert();
         GlUniform inverse = program.getUniform("InvViewProj");
         if (inverse != null) {
             inverse.set(INVERSE);
@@ -184,6 +262,9 @@ public final class PostProcessor {
 
         float seconds = (float) (((env.worldTime % 72000L) + tickDelta) / 20.0);
         LWShaders.set(program, "TimeWind", seconds, env.wind.dirX, env.wind.dirZ, env.wind.speed);
+        // The same wave clock and ripple drift the water shader uses, plus how far a puddle's mirror ray is followed.
+        LWShaders.set(program, "Wave", env.waveClock(tickDelta), env.windTravelX(tickDelta, 0.05, 4096.0),
+                env.windTravelZ(tickDelta, 0.05, 4096.0), config.waterReflections ? Math.min(12f, QualityManager.preset().reflectionSteps) : 0f);
         LWShaders.set(program, "Haze", atmosphere.hazeR, atmosphere.hazeG, atmosphere.hazeB, atmosphere.hazeDensity);
         // Mist scatters the light of the sky around it: lean on the horizon colour the game is drawing right now,
         // so mist glows at dawn and stays dark at night without a separate lighting model.
@@ -194,7 +275,9 @@ public final class PostProcessor {
         LWShaders.set(program, "Mist", mistR, mistG, mistB, atmosphere.mistDensity);
         LWShaders.set(program, "MistShape", (float) cam.y - atmosphere.mistBase, atmosphere.mistFalloff,
                 config.reduceFog ? 0.45f : 0.78f, atmosphere.hazeMax);
-        LWShaders.set(program, "Heat", atmosphere.heatShimmer, env.flash * config.flashScale(), atmosphere.exposure,
+        // Most of a flash is now the light of the stroke where it stands (see Bolt); a little still
+        // reaches everything, as it does through the air.
+        LWShaders.set(program, "Heat", atmosphere.heatShimmer, env.flash * config.flashScale() * 0.4f, atmosphere.exposure,
                 atmosphere.saturation);
         LWShaders.set(program, "Grade", atmosphere.tintR, atmosphere.tintG, atmosphere.tintB, atmosphere.contrast);
         LWShaders.set(program, "Wet", atmosphere.wetSurfaces * 0.8f, atmosphere.puddles, env.rain,
@@ -213,6 +296,14 @@ public final class PostProcessor {
                 LWMath.lerp((float) skyColor.y * 1.15f + 0.05f, cloudG, cover),
                 LWMath.lerp((float) skyColor.z * 1.15f + 0.05f, cloudB, cover), cover);
         LWShaders.set(program, "Cloud", cloudR, cloudG, cloudB, dark);
+
+        LWShaders.set(program, "Shore", config.shoreline && QualityManager.preset().wetness && env.columns.hasWater() ? 1f : 0f,
+                0f, 0f, 0f);
+
+        // The real cloud layer, the light on it, and the clear-sky extras.
+        cloudUniforms(program, cam, tickDelta, fog);
+        LWShaders.set(program, "CloudSeen", atmosphere.cloudSeenR, atmosphere.cloudSeenG, atmosphere.cloudSeenB, 0f);
+        LWShaders.set(program, "SkyFx", atmosphere.starlight, atmosphere.aurora, atmosphere.rainbow, 0f);
 
         // Where the sun sits on screen, for the light shafts.
         float shafts = atmosphere.lightShafts;
@@ -234,11 +325,26 @@ public final class PostProcessor {
         float skyAngle = client.world.getSkyAngleRadians(tickDelta);
         float sx = -(float) Math.sin(skyAngle), sy = (float) Math.cos(skyAngle);
         boolean moon = sy < -0.1f;
-        float clear = (1f - atmosphere.cloudDeck) * (1f - 0.7f * env.storm) * (env.natural ? 1f : 0f);
+        LWShaders.set(program, "Celestial", sx, sy, 0f, skyAngle);
+        // With the cloud layer drawn, the shader dims the glow by the cloud actually in front of the sun.
+        float overcast = atmosphere.cloudsDrawn ? LWMath.smoothstep(0.75f, 1f, atmosphere.cloudCoverage) * 0.6f : atmosphere.cloudDeck;
+        float clear = (1f - overcast) * (1f - 0.7f * env.storm) * (env.natural ? 1f : 0f);
         float glow = config.sunGlow ? clear * (moon ? 0.16f : LWMath.lerp(0.42f, 0.95f, warm)) : 0f;
         // The sun's glow lingers a little after it has set, then the moon's takes over.
         glow *= moon ? LWMath.smoothstep(0.1f, 0.22f, -sy) : LWMath.smoothstep(-0.1f, 0f, sy);
         LWShaders.set(program, "SunDir", moon ? -sx : sx, moon ? -sy : sy, 0f);
+
+        // The clouds of the open sky, at reduced resolution where the preset asks for it.
+        float cloudScale = QualityManager.preset().cloudScale;
+        lastCloudBuffer = atmosphere.cloudsDrawn && atmosphere.cloudCoverage > 0.001f && cloudScale < 0.99f
+                && LWShaders.clouds != null && !under;
+        if (lastCloudBuffer) {
+            program.addSampler("CloudSampler", cloudBuffer(source, INVERSE, cam, tickDelta, fog, moon ? -sx : sx, moon ? -sy : sy, 0f,
+                    noise, cloudScale));
+        } else {
+            program.addSampler("CloudSampler", noise);
+        }
+        LWShaders.set(program, "CloudMode", lastCloudBuffer ? 1f : 0f, 0f, 0f, 0f);
         if (moon) {
             LWShaders.set(program, "Glow", 0.55f, 0.66f, 0.9f, glow);
         } else {

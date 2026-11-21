@@ -71,6 +71,9 @@ dependencies {
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
     modClientCompileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
+    // Sodium is compiled against (never bundled, never required) so that the mod can teach Sodium's
+    // terrain shaders its water, vegetation sway and seasonal colours. See client/compat/sodium.
+    modClientCompileOnly "maven.modrinth:sodium:${project.sodium_version}"
 
     // Compatibility smoke tests: `gradlew runAutotest -PlwCompat=sodium` or `-PlwCompat=sodium,iris`
     // adds those mods to the dev client only. They are never bundled or required.

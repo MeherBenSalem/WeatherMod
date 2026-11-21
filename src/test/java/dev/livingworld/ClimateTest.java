@@ -1,10 +1,13 @@
 package dev.livingworld;
 
+import dev.livingworld.climate.BiomeProfile;
 import dev.livingworld.climate.ClimateMath;
+import dev.livingworld.climate.Seasons;
 import dev.livingworld.climate.SimulationOverrides;
 import dev.livingworld.climate.WeatherModel;
 import dev.livingworld.climate.WeatherType;
 import dev.livingworld.climate.WindField;
+import dev.livingworld.server.SeasonalWorld;
 import dev.livingworld.util.Noise;
 import io.netty.buffer.Unpooled;
 import net.minecraft.network.PacketByteBuf;
@@ -225,6 +228,8 @@ class ClimateTest {
         sent.wind = 0.9f;
         sent.rainStartTime = 12345L;
         sent.gameplayEffects = true;
+        sent.seasonDays = 12f;
+        sent.seasonOffsetDays = 5.5f;
         PacketByteBuf buf = new PacketByteBuf(Unpooled.buffer());
         sent.write(buf);
         SimulationOverrides received = new SimulationOverrides();
@@ -236,6 +241,9 @@ class ClimateTest {
         assertEquals(0.9f, received.wind);
         assertEquals(12345L, received.rainStartTime);
         assertTrue(received.gameplayEffects);
+        assertEquals(12f, received.seasonDays);
+        assertEquals(5.5f, received.seasonOffsetDays);
+        assertTrue(received.hasSeasonRules());
         assertEquals(0, buf.readableBytes(), "the packet is read completely");
 
         assertTrue(received.hasWeather(100L));
@@ -250,5 +258,111 @@ class ClimateTest {
         assertNull(received.weather);
         assertFalse(received.hasTemperature());
         assertFalse(received.hasWind());
+        assertFalse(received.hasSeasonRules(), "a client that heard nothing about the calendar keeps its own");
+    }
+
+    // ---- the year ----------------------------------------------------------------------------------
+
+    @Test
+    void theYearRunsThroughFourSeasonsInOrder() {
+        float days = 8f;
+        // Day 0 of a world is already some way into spring; this shift puts it back on the first morning.
+        float fromTheStart = -Seasons.EPOCH * days * 4f;
+        assertEquals(Seasons.Season.SPRING, Seasons.of(Seasons.yearPhase(0L, days, 0f)), "a new world begins in spring");
+        assertTrue(Seasons.springFreshness(Seasons.yearPhase(0L, days, 0f)) > 0.9f, "and in full leaf, not in late winter");
+        Seasons.Season[] expected = {Seasons.Season.SPRING, Seasons.Season.SUMMER, Seasons.Season.AUTUMN, Seasons.Season.WINTER};
+        for (int season = 0; season < 4; season++) {
+            for (int day = 0; day < 8; day++) {
+                long time = (season * 8L + day) * 24000L + 6000L;
+                float phase = Seasons.yearPhase(time, days, fromTheStart);
+                assertEquals(expected[season], Seasons.of(phase), "day " + (season * 8 + day));
+                assertEquals(day + 1, Seasons.dayOfSeason(phase, days));
+            }
+        }
+        // The year comes round again, and a negative shift is as good as a positive one.
+        assertEquals(Seasons.yearPhase(6000L, days, 0f), Seasons.yearPhase(6000L + 32L * 24000L, days, 0f), 1.0e-4f);
+        assertEquals(Seasons.Season.WINTER, Seasons.of(Seasons.yearPhase(6000L, days, fromTheStart - 1f)));
+    }
+
+    @Test
+    void midsummerIsWarmestAndMidwinterColdest() {
+        assertEquals(1f, Seasons.warmth(0.375f), 1.0e-4f);
+        assertEquals(-1f, Seasons.warmth(0.875f), 1.0e-4f);
+        assertEquals(0f, Seasons.warmth(0.125f), 1.0e-4f, "mid-spring sits on the yearly mean");
+        assertEquals(Seasons.SUMMER_RISE_C, Seasons.temperatureOffsetC(0.375f, 1f), 1.0e-3f);
+        assertEquals(-Seasons.WINTER_DROP_C, Seasons.temperatureOffsetC(0.875f, 1f), 1.0e-3f);
+        assertEquals(0f, Seasons.temperatureOffsetC(0.375f, 0f), "a place without seasons does not warm up in summer");
+        assertTrue(Seasons.seasonality(BiomeProfile.Kind.FOREST) > Seasons.seasonality(BiomeProfile.Kind.JUNGLE));
+        assertEquals(0f, Seasons.seasonality(BiomeProfile.Kind.NETHER_WASTES));
+        // A temperate forest (17 degrees on average) freezes at night in midwinter and never in midsummer.
+        float winterNight = air(17f + Seasons.temperatureOffsetC(0.875f, 1f), 0.6f, NIGHT, 64, 0f, 0f, 0f);
+        float summerNight = air(17f + Seasons.temperatureOffsetC(0.375f, 1f), 0.6f, NIGHT, 64, 0f, 0f, 0f);
+        assertTrue(winterNight < 0f, "midwinter night in a forest: " + winterNight);
+        assertTrue(summerNight > 15f, "midsummer night in a forest: " + summerNight);
+    }
+
+    @Test
+    void seasonalLooksBelongToTheirSeasons() {
+        for (int i = 0; i < 400; i++) {
+            float phase = i / 400f;
+            float autumn = Seasons.autumnColour(phase), winter = Seasons.winterBareness(phase), spring = Seasons.springFreshness(phase);
+            assertTrue(autumn >= 0f && autumn <= 1f && winter >= 0f && winter <= 1f && spring >= 0f && spring <= 1f);
+            if (phase > 0.3f && phase < 0.47f) {
+                assertEquals(0f, autumn + winter + spring, 1.0e-5f, "high summer is plain green at phase " + phase);
+            }
+        }
+        assertEquals(1f, Seasons.autumnColour(0.65f), 1.0e-4f);
+        assertEquals(1f, Seasons.winterBareness(0.9f), 1.0e-4f);
+        assertEquals(1f, Seasons.springFreshness(0.15f), 1.0e-4f);
+        assertEquals(0f, Seasons.autumnColour(0.9f), 1.0e-4f, "the colour is gone by midwinter");
+        // Winter lets go gradually across the turn of the year instead of snapping off at phase 0.
+        assertTrue(Seasons.winterBareness(0.999f) > 0.5f && Seasons.winterBareness(0.001f) > 0.5f);
+        assertEquals(Seasons.winterBareness(0.999f), Seasons.winterBareness(0.001f), 0.05f);
+    }
+
+    @Test
+    void cropsFollowTheYearOnlyWhereThereIsOne() {
+        assertEquals(1.25f, Seasons.growth(0.125f), 1.0e-4f, "spring hurries crops");
+        assertEquals(1f, Seasons.growth(0.4f), 1.0e-4f, "summer is vanilla");
+        assertEquals(0.2f, Seasons.growth(0.875f), 1.0e-4f, "winter all but stops them");
+        assertTrue(Seasons.growth(0.65f) < 1f && Seasons.growth(0.65f) > 0.2f, "autumn slows them");
+        for (int i = 0; i <= 400; i++) {
+            float g = Seasons.growth(i / 400f);
+            assertTrue(g >= 0.2f - 1.0e-4f && g <= 1.25f + 1.0e-4f, "growth " + g + " at phase " + i / 400f);
+        }
+        // The year joins up: no jump from the last day of winter to the first of spring.
+        assertEquals(Seasons.growth(0.9999f), Seasons.growth(0.0001f), 0.01f);
+        assertEquals(1f, Seasons.growth(0.875f, 0f), "a place without seasons grows as in vanilla all year");
+        assertEquals(0.6f, Seasons.growth(0.875f, 0.5f), 1.0e-4f);
+    }
+
+    @Test
+    void winterFreezesAndTheThawWaitsForWarmth() {
+        assertEquals(SeasonalWorld.Change.FREEZE_HARD, SeasonalWorld.changeAt(-4f), "water freezes below zero");
+        assertEquals(SeasonalWorld.Change.FREEZE, SeasonalWorld.changeAt(1.5f), "snow settles a little above it");
+        assertEquals(SeasonalWorld.Change.NONE, SeasonalWorld.changeAt(4f), "between the two nothing changes either way");
+        assertEquals(SeasonalWorld.Change.THAW, SeasonalWorld.changeAt(8f));
+        // A forest (17 degrees on average) gets snow in midwinter and loses it by spring.
+        assertEquals(SeasonalWorld.Change.FREEZE, SeasonalWorld.changeAt(17f + Seasons.temperatureOffsetC(0.875f, 1f)));
+        assertEquals(SeasonalWorld.Change.THAW, SeasonalWorld.changeAt(17f + Seasons.temperatureOffsetC(0.125f, 1f)));
+        // A jungle never does.
+        assertEquals(SeasonalWorld.Change.THAW, SeasonalWorld.changeAt(26f + Seasons.temperatureOffsetC(0.875f, 0.12f)));
+    }
+
+    @Test
+    void theCalendarCanBeMovedToAnySeason() {
+        float days = 8f;
+        long[] times = {0L, 6000L, 13L * 24000L + 18000L, 1000L * 24000L + 123L};
+        for (long time : times) {
+            for (Seasons.Season season : Seasons.Season.VALUES) {
+                float offset = Seasons.offsetFor(season, time, days);
+                assertTrue(offset >= 0f && offset < days * 4f + 1.0e-3f);
+                float phase = Seasons.yearPhase(time, days, offset);
+                assertEquals(season, Seasons.of(phase), season + " at time " + time);
+                assertEquals(season.start() + 0.125f, phase, 2.0e-3f, "the middle of the season, where it looks like itself");
+            }
+        }
+        assertEquals(Seasons.Season.AUTUMN, Seasons.Season.byId("autumn"));
+        assertNull(Seasons.Season.byId("monsoon"));
     }
 }

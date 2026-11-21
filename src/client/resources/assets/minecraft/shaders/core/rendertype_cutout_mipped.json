@@ -26,8 +26,10 @@
         { "name": "FogEnd", "type": "float", "count": 1, "values": [ 1.0 ] },
         { "name": "FogColor", "type": "float", "count": 4, "values": [ 0.0, 0.0, 0.0, 0.0 ] },
         { "name": "FogShape", "type": "int", "count": 1, "values": [ 0 ] },
-        { "name": "LWWind", "type": "float", "count": 4, "values": [ 1.0, 0.0, 0.0, 0.0 ] },
+        { "name": "LWSway", "type": "float", "count": 4, "values": [ 1.0, 0.0, 0.0, 0.0 ] },
         { "name": "LWCamera", "type": "float", "count": 3, "values": [ 0.0, 0.0, 0.0 ] },
+        { "name": "LWDrift", "type": "float", "count": 4, "values": [ 0.0, 0.0, 0.0, 0.0 ] },
+        { "name": "LWSeason", "type": "float", "count": 4, "values": [ 0.0, 0.0, 0.0, 0.0 ] },
         { "name": "LWBend", "type": "float", "count": 4, "values": [ 0.0, 0.0, 0.0, 0.0 ] }
     ]
 }

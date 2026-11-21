@@ -1,0 +1,5 @@
+Put your frog recordings here as mono Ogg Vorbis files: frog_01.ogg, frog_02.ogg, frog_03.ogg ...
+
+Every file listed under "wildlife.frogs" in assets/livingworld/sounds.json must exist in this folder.
+Remove the entries you have no file for, or remove "wildlife.frogs" altogether to keep the synthesised frogs.
+See docs/SAMPLE_PACK.md in the Living World repository.

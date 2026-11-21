@@ -3,11 +3,15 @@ package dev.livingworld;
 import dev.livingworld.client.audio.synth.AmbienceParams;
 import dev.livingworld.client.audio.synth.AmbienceSynth;
 import dev.livingworld.client.audio.synth.OneShotSynth;
-import dev.livingworld.client.audio.synth.StepMaterial;
+import dev.livingworld.client.compat.sodium.SodiumShaders;
 import dev.livingworld.client.footprint.DecalStore;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Client-side logic that has no dependency on a running game: the decal store and the synthesiser. */
@@ -219,19 +223,102 @@ class ClientLogicTest {
         return sum;
     }
 
+    // ---- the Sodium bridge: patching a shader it does not own ---------------------------------------
+
+    /** The lines of Sodium 0.5's terrain vertex shader that the patch hangs on, in their order. */
+    private static final String SODIUM_VERTEX = """
+            #version 330 core
+
+            #import <sodium:include/chunk_vertex.glsl>
+            #import <sodium:include/chunk_material.glsl>
+
+            out vec4 v_Color;
+
+            void main() {
+                _vert_init();
+
+                vec3 translation = u_RegionOffset + _get_draw_translation(_draw_id);
+                vec3 position = _vert_position + translation;
+
+                gl_Position = u_ProjectionMatrix * u_ModelViewMatrix * vec4(position, 1.0);
+
+                v_Color = _vert_color * _sample_lightmap(u_LightTex, _vert_tex_light_coord);
+                v_TexCoord = _vert_tex_diffuse_coord;
+            }
+            """;
+
+    private static final String SODIUM_FRAGMENT = """
+            #version 330 core
+
+            uniform sampler2D u_BlockTex; // The block texture
+
+            out vec4 fragColor;
+
+            void main() {
+                vec4 diffuseColor = texture(u_BlockTex, v_TexCoord, v_MaterialMipBias);
+
+                // Apply per-vertex color
+                diffuseColor.rgb *= v_Color.rgb;
+
+                fragColor = _linearFog(diffuseColor, v_FragDistance, u_FogColor, u_FogStart, u_FogEnd);
+            }
+            """;
+
     @Test
-    void footstepsAreShortVariedAndLouderWhenHarder() {
-        for (StepMaterial material : StepMaterial.values()) {
-            short[] soft = OneShotSynth.footstep(material, 0.2f, 11L);
-            short[] hard = OneShotSynth.footstep(material, 1f, 11L);
-            short[] other = OneShotSynth.footstep(material, 1f, 12L);
-            double ms = hard.length * 1000.0 / AmbienceSynth.SAMPLE_RATE;
-            assertTrue(ms >= 40.0 && ms <= 600.0, material + " footstep length out of range: " + ms + " ms");
-            assertTrue(peak(hard, hard.length) > 500, material + " footstep is silent");
-            assertTrue(peak(hard, hard.length) <= 32767 * 0.5, material + " footstep is too loud");
-            assertTrue(rms(hard, hard.length) > rms(soft, soft.length), material + ": a landing must be louder than a sneak");
-            assertTrue(!java.util.Arrays.equals(hard, other), material + ": different seeds must sound different");
-        }
+    void sodiumsVertexShaderGainsTagsSwayAndSeasons() {
+        String patched = SodiumShaders.patchVertex(SODIUM_VERTEX);
+        assertNotNull(patched);
+        // The tag is read and the light coordinate cleaned before anything uses either...
+        int tag = patched.indexOf("uint lwTag = (uint(a_LightCoord.x) >> 8u) & 0xFFu;");
+        int mask = patched.indexOf("_vert_tex_light_coord = a_LightCoord & ivec2(0xFF);");
+        int move = patched.indexOf("lwSway(position, lwWorldPos, lwKind, lwWeight);");
+        int project = patched.indexOf("gl_Position = ");
+        int shade = patched.indexOf("lwSeasonal(lwTinted.rgb");
+        assertTrue(tag > patched.indexOf("_vert_init();") && mask > tag, "the tag is read right after the vertex is unpacked");
+        assertTrue(move > mask && move < project, "plants are moved before the vertex is projected");
+        assertTrue(shade > project, "and recoloured where Sodium set the colour");
+        // ...the declarations sit with Sodium's own imports, each import on a line of its own (Sodium
+        // only recognises an import that is the whole line)...
+        assertTrue(patched.contains("\n#import <minecraft:include/lw_foliage.glsl>\n"));
+        assertTrue(patched.indexOf("uniform vec4 LWSeason;") < patched.indexOf("void main()"));
+        // ...and Sodium's own colour line is replaced, not doubled.
+        assertFalse(patched.contains("v_Color = _vert_color * _sample_lightmap"));
+        assertTrue(patched.contains("v_Color = lwTinted * lwLit;"));
+        assertTrue(patched.contains("v_TexCoord = _vert_tex_diffuse_coord;"), "what follows is left alone");
+        // Windows line endings in the jar make no difference.
+        assertEquals(patched, SodiumShaders.patchVertex(SODIUM_VERTEX.replace("\n", "\r\n")));
+    }
+
+    @Test
+    void sodiumsFragmentShaderGainsWater() {
+        String patched = SodiumShaders.patchFragment(SODIUM_FRAGMENT);
+        assertNotNull(patched);
+        int declarations = patched.indexOf("uniform sampler2D LWScene;");
+        int branch = patched.indexOf("if (v_LWWater > 0.5 && LWSky.a > 0.5) {");
+        assertTrue(declarations > patched.indexOf("uniform sampler2D u_BlockTex;") && declarations < patched.indexOf("void main()"));
+        assertTrue(branch > patched.indexOf("vec4 diffuseColor = texture(") && branch < patched.indexOf("// Apply per-vertex color"),
+                "water is shaded after the texture is read and before Sodium's own colouring");
+        assertTrue(patched.contains("diffuseColor.rgb *= v_Color.rgb;"), "everything that is not water takes Sodium's path");
+    }
+
+    @Test
+    void anUnfamiliarSodiumShaderIsLeftAlone() {
+        // A version of Sodium whose shader no longer has a line the patch hangs on.
+        assertNull(SodiumShaders.patchVertex(SODIUM_VERTEX.replace("_vert_init();", "unpack_vertex();")));
+        assertNull(SodiumShaders.patchVertex(SODIUM_VERTEX.replace("v_Color = _vert_color * _sample_lightmap", "v_Color = shade")));
+        assertNull(SodiumShaders.patchFragment(SODIUM_FRAGMENT.replace("// Apply per-vertex color", "// tint")));
+        // A line that appears twice is as bad as one that is missing: there would be no telling which to use.
+        assertNull(SodiumShaders.patchVertex(SODIUM_VERTEX + "\n    _vert_init();\n"));
+        // Files that are not the terrain shader, and files that are not Sodium's, come back as they went in.
+        assertSame(SODIUM_VERTEX, SodiumShaders.patch("sodium", "include/fog.glsl", SODIUM_VERTEX));
+        assertSame(SODIUM_VERTEX, SodiumShaders.patch("minecraft", "blocks/block_layer_opaque.vsh", SODIUM_VERTEX));
+        // And when the terrain shader itself is unfamiliar, the source is returned untouched.
+        String odd = SODIUM_FRAGMENT.replace("// Apply per-vertex color", "// tint");
+        assertSame(odd, SodiumShaders.patch("sodium", "blocks/block_layer_opaque.fsh", odd));
+    }
+
+    @Test
+    void oneShotsAreNotEmpty() {
         assertTrue(OneShotSynth.splash(0.5f, 1L).length > 1000);
         assertTrue(OneShotSynth.drip(1L).length > 500);
     }

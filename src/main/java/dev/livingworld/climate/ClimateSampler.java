@@ -48,6 +48,8 @@ public final class ClimateSampler {
         public float rainFraction;
         public float snowFraction;
         public float dryFraction;
+        /** How strongly the surroundings have seasons, 0..1 (see {@link Seasons#seasonality}). */
+        public float seasonality;
         /** Blend weights per biome family, summing to 1. */
         public final float[] kind = new float[Kind.VALUES.length];
         public Kind dominant = Kind.PLAINS;
@@ -108,11 +110,16 @@ public final class ClimateSampler {
         out.snowFraction = snow;
         out.dryFraction = dry;
         int best = 0;
-        for (int i = 1; i < kind.length; i++) {
+        float seasonality = 0f;
+        for (int i = 0; i < kind.length; i++) {
             if (kind[i] > kind[best]) {
                 best = i;
             }
+            if (kind[i] > 0f) {
+                seasonality += kind[i] * Seasons.seasonality(Kind.VALUES[i]);
+            }
         }
+        out.seasonality = nether || end ? 0f : seasonality;
         out.dominant = Kind.VALUES[best];
     }
 

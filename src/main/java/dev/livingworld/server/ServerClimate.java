@@ -3,6 +3,7 @@ package dev.livingworld.server;
 import dev.livingworld.climate.BiomeProfile;
 import dev.livingworld.climate.ClimateMath;
 import dev.livingworld.climate.ClimateSampler;
+import dev.livingworld.climate.Seasons;
 import dev.livingworld.climate.SimulationOverrides;
 import dev.livingworld.climate.WeatherModel;
 import dev.livingworld.climate.WeatherType;
@@ -27,6 +28,8 @@ public final class ServerClimate {
         public BiomeProfile.Kind biome = BiomeProfile.Kind.PLAINS;
         public WeatherType weather = WeatherType.CLEAR;
         public boolean simulatedWeather;
+        /** Position in the year (0..1), or negative when seasons are off or the dimension has none. */
+        public float yearPhase = -1f;
         final ClimateSampler.Sample sample = new ClimateSampler.Sample();
         final WindField wind = new WindField();
     }
@@ -72,9 +75,11 @@ public final class ServerClimate {
         float cave = natural ? LWMath.smoothstep(0.75f, 0.1f, skyLight) : 0f;
         float sun = natural ? skyLight * (1f - LWMath.clamp01(rainGradient)) : 0f;
         float heat = ClimateSampler.heatSources(world, pos, 4);
+        out.yearPhase = natural ? SeasonState.yearPhase(world.getServer()) : -1f;
+        float seasonOffset = out.yearPhase >= 0f ? Seasons.temperatureOffsetC(out.yearPhase, s.seasonality) : 0f;
         float ambient = overrides.hasTemperature()
                 ? overrides.temperatureC
-                : ClimateMath.ambient(s.meanC, s.humidity, world.getTimeOfDay(), player.getY(), exposedRain, thunder,
+                : ClimateMath.ambient(s.meanC + seasonOffset, s.humidity, world.getTimeOfDay(), player.getY(), exposedRain, thunder,
                 sun, cave, heat, natural ? 1f : 0f);
         float windExposure = natural ? skyLight : 0.3f;
         float wet = player.isTouchingWaterOrRain() ? 1f : 0f;

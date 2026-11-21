@@ -24,8 +24,16 @@ import static dev.livingworld.client.debug.AutoTest.walk;
  */
 final class Scenes {
     private static final ClientEnvironment ENV = ClientEnvironment.INSTANCE;
+    /** Decals already in the store when the desert scene begins (left by earlier scenes). */
+    private static int decalsOnArrival;
 
     private Scenes() {
+    }
+
+    /** How many blocks the seasons have placed in the overworld and not yet taken back (integrated server). */
+    static int seasonalBlocks() {
+        net.minecraft.server.MinecraftServer server = net.minecraft.client.MinecraftClient.getInstance().getServer();
+        return server == null ? -1 : dev.livingworld.server.SeasonalBlocks.get(server.getOverworld()).size();
     }
 
     /** Drops a spread of items (tools, food, blocks, stacks) from head height in front of the player. */
@@ -99,7 +107,9 @@ final class Scenes {
             shot("20_plains_grass_wind");
             waitTicks(9);
             shot("20_plains_grass_wind_b");
-            expect("plant models were tagged for sway", () -> dev.livingworld.client.render.VegetationWind.wrappedModels > 100);
+            expect("plants are tagged for sway (models wrapped, or under Sodium its mesher hooked)",
+                    () -> dev.livingworld.client.compat.Compat.SODIUM ? dev.livingworld.client.compat.sodium.SodiumState.ready()
+                            : dev.livingworld.client.render.VegetationWind.wrappedModels > 100);
             expect("terrain shader accepts the wind uniforms", dev.livingworld.client.render.VegetationWind::shaderBound);
             cmd("livingworld wind clear");
         }
@@ -139,8 +149,8 @@ final class Scenes {
             note("water_noon");
             shot("30_water_noon");
             expect("translucent terrain shader accepts the water uniforms", dev.livingworld.client.render.WaterShading::shaderBound);
-            expect("the water shader was fed this frame (never under Sodium, which shades water itself)",
-                    () -> dev.livingworld.client.render.WaterShading.lastRan != dev.livingworld.client.compat.Compat.SODIUM);
+            expect("the water shader was fed this frame (the vanilla override, or Sodium's patched shader)",
+                    () -> dev.livingworld.client.render.WaterShading.lastRan);
             expect("the terrain column cache follows terrain edits", () -> {
                 net.minecraft.client.network.ClientPlayerEntity p = net.minecraft.client.MinecraftClient.getInstance().player;
                 float top = ENV.columns.top(p.getBlockX() + 16, p.getBlockZ() - 6);
@@ -241,6 +251,7 @@ final class Scenes {
             tpBiome("minecraft:desert", 0f, 15f);
             waitTicks(140);
             note("desert_arrival");
+            AutoTest.run(() -> decalsOnArrival = FootprintTracker.INSTANCE.decals.count);
             shot("01_desert_noon");
             walk(45, false);
             walk(45, true);
@@ -260,7 +271,9 @@ final class Scenes {
             expect("sandstorm reduces visibility", () -> Atmosphere.INSTANCE.visibility < 80f);
             expect("sandstorm draws blowing sand", () -> PrecipitationRenderer.INSTANCE.lastDrops > 50);
             // A stray animal may have added a fresh print or two; the 20-odd prints of the walk must be gone.
-            expect("sandstorm swept the footprints away", () -> FootprintTracker.INSTANCE.decals.count <= 6);
+            // Measured against what was already in the store on arrival: the probe scene leaves a dozen
+            // test decals that no weather erodes, and they are not this scene's business.
+            expect("sandstorm swept the footprints away", () -> FootprintTracker.INSTANCE.decals.count <= decalsOnArrival + 6);
             cmd("livingworld weather clear");
             cmd("time set 18000");
             waitTicks(160);
@@ -319,7 +332,9 @@ final class Scenes {
             waitTicks(7);
             shot("08_forest_wind_b");
             AutoTest.run(() -> AutoTest.log("vegetation: " + dev.livingworld.client.render.VegetationWind.status()));
-            expect("plant models were tagged for sway", () -> dev.livingworld.client.render.VegetationWind.wrappedModels > 100);
+            expect("plants are tagged for sway (models wrapped, or under Sodium its mesher hooked)",
+                    () -> dev.livingworld.client.compat.Compat.SODIUM ? dev.livingworld.client.compat.sodium.SodiumState.ready()
+                            : dev.livingworld.client.render.VegetationWind.wrappedModels > 100);
             expect("terrain shader accepts the wind uniforms", dev.livingworld.client.render.VegetationWind::shaderBound);
             cmd("livingworld wind clear");
             cmd("livingworld weather heavy_rain");
@@ -464,8 +479,289 @@ final class Scenes {
             expect("the End is cold", () -> ENV.ambientC < 0f);
         }
 
+        // ---- water, sky, seasons, puddles: kept after the older scenes on purpose. Every scene starts by
+        //      finding the nearest instance of a biome from wherever the last one ended, so a scene added
+        //      in the middle moves every later one to a new, unvetted spot. ----
+        if (selected("water") || selected("sky") || selected("seasons") || selected("realwinter") || selected("puddles")) {
+            AutoTest.tpDimension("minecraft:overworld", 0, 0, 0f, 0f);
+            cmd("time set 6000");
+            cmd("weather clear");
+            waitTicks(40);
+        }
+
+        if (selected("water")) {
+            // The surface in a dead calm and in a gale, each as a pair of frames a quarter of a second
+            // apart: still water must barely move between the two, and must not slide sideways.
+            AutoTest.resize(1280, 720);
+            tpBiome("minecraft:desert", 0f, 40f);
+            cmd("execute at @s run tp @s ~40 ~ ~");
+            waitTicks(20);
+            pond();
+            cmd("time set 6000");
+            cmd("livingworld wind set 0");
+            look(0f, 14f);
+            waitTicks(160);
+            note("water_calm");
+            shot("40_water_calm_a");
+            waitTicks(5);
+            shot("40_water_calm_b");
+            AutoTest.clip("water_calm", 6, 5, 0.45f, 1f);
+            expect("still water barely moves", () -> AutoTest.clipChange < 0.08f);
+            look(0f, 48f);
+            waitTicks(10);
+            shot("41_water_calm_shallows");
+            look(180f, 20f);
+            waitTicks(10);
+            shot("41b_water_calm_deep");
+            cmd("livingworld wind set 1.1");
+            look(0f, 14f);
+            waitTicks(160);
+            note("water_gale");
+            shot("42_water_gale_a");
+            waitTicks(5);
+            shot("42_water_gale_b");
+            AutoTest.clip("water_gale", 6, 5, 0.45f, 1f);
+            expect("a gale keeps the water busy", () -> AutoTest.clipChange > 0.12f);
+            cmd("livingworld wind set 0.35");
+            cmd("time set 11900");
+            look(90f, 9f);
+            waitTicks(100);
+            shot("43_water_sunset");
+            cmd("livingworld wind clear");
+            cmd("time set 6000");
+            // A natural shoreline, as a player meets it.
+            tpBiome("minecraft:river", 0f, 12f);
+            cmd("livingworld wind set 0.25");
+            AutoTest.faceWater(14f);
+            waitTicks(140);
+            note("water_river");
+            shot("44_water_river");
+            // The shoreline in a stiff breeze, looking down the beach: foam at the edge, surf running in,
+            // damp sand along the waterline.
+            cmd("livingworld wind set 0.85");
+            AutoTest.faceWater(32f);
+            waitTicks(120);
+            shot("45_shore_surf");
+            expect("open water is found near the shore", () -> ENV.columns.hasWater());
+            AutoTest.clip("shore_surf", 6, 5, 0.3f, 1f);
+            AutoTest.run(() -> dev.livingworld.client.config.ClientConfig.get().shoreline = false);
+            waitTicks(6);
+            shot("45b_shore_plain");
+            AutoTest.run(() -> dev.livingworld.client.config.ClientConfig.get().shoreline = true);
+            cmd("livingworld wind clear");
+            AutoTest.resize(854, 480);
+        }
+
+        if (selected("sky")) {
+            AutoTest.resize(1280, 720);
+            tpBiome("minecraft:plains", 0f, -18f);
+            // Up on a pillar, clear of whatever hillside the teleport landed beside.
+            cmd("execute at @s run fill ~ ~ ~ ~ ~31 ~ minecraft:stone");
+            cmd("execute at @s run tp @s ~ ~32 ~");
+            AutoTest.run(() -> Atmosphere.forceFairCover = 0.36f);
+            cmd("time set 6000");
+            waitTicks(160);
+            note("sky_noon");
+            shot("50_sky_noon");
+            expect("the mod draws its own cloud layer", () -> Atmosphere.INSTANCE.cloudsDrawn);
+            look(0f, -62f);
+            waitTicks(8);
+            shot("50b_sky_noon_overhead");
+            look(0f, 28f);
+            waitTicks(8);
+            shot("50c_cloud_shadows");
+            AutoTest.run(() -> dev.livingworld.client.config.ClientConfig.get().cloudShadows = false);
+            waitTicks(60);
+            shot("50d_cloud_shadows_off");
+            AutoTest.run(() -> dev.livingworld.client.config.ClientConfig.get().cloudShadows = true);
+            cmd("time set 12300");
+            look(90f, -10f);
+            waitTicks(120);
+            note("sky_sunset");
+            shot("51_sky_sunset");
+            look(-90f, -10f);
+            waitTicks(8);
+            shot("51b_sky_sunset_east");
+            cmd("time set 18000");
+            AutoTest.run(() -> Atmosphere.forceFairCover = 0.14f);
+            look(0f, -35f);
+            waitTicks(160);
+            note("sky_night");
+            shot("52_sky_night");
+            expect("stars come out on a clear night", () -> Atmosphere.INSTANCE.starlight > 0.5f);
+            look(140f, -55f);
+            waitTicks(6);
+            shot("52b_sky_night_overhead");
+            AutoTest.run(() -> Atmosphere.forceFairCover = -1f);
+            cmd("time set 6000");
+            cmd("livingworld weather thunderstorm");
+            look(0f, -14f);
+            waitTicks(260);
+            note("sky_storm");
+            shot("53_sky_storm");
+            expect("a storm closes the cloud layer", () -> Atmosphere.INSTANCE.cloudCoverage > 0.85f);
+            // A stroke at dusk, down on the ground ahead: the land facing it and the cloud above it light up.
+            cmd("time set 13600");
+            look(0f, 6f);
+            waitTicks(60);
+            shot("53b_sky_before_lightning");
+            cmd("execute at @s run summon minecraft:lightning_bolt ~18 ~-32 ~70");
+            waitTicks(3);
+            shot("53c_sky_lightning");
+            expect("lightning is a light at the place of the stroke", () -> ENV.boltPower > 0.2f
+                    && Math.abs(ENV.boltZ - ENV.camZ - 70.0) < 12.0);
+            waitTicks(40);
+            cmd("time set 6000");
+            cmd("livingworld weather rain 0.6");
+            cmd("time set 10400");
+            waitTicks(300);
+            cmd("livingworld weather clear");
+            look(-90f, -16f);
+            waitTicks(420);
+            note("sky_rainbow");
+            AutoTest.run(() -> AutoTest.log("rainbow strength: " + Atmosphere.INSTANCE.rainbow));
+            shot("54_sky_rainbow");
+            cmd("time set 6000");
+            tpBiome("minecraft:snowy_plains", 0f, -30f);
+            cmd("execute at @s run fill ~ ~ ~ ~ ~9 ~ minecraft:stone");
+            cmd("execute at @s run tp @s ~ ~10 ~");
+            cmd("time set 18000");
+            AutoTest.run(() -> {
+                Atmosphere.forceAurora = 1f;
+                Atmosphere.forceFairCover = 0.1f;
+            });
+            waitTicks(160);
+            note("sky_aurora");
+            shot("55_sky_aurora");
+            AutoTest.run(() -> {
+                Atmosphere.forceAurora = -1f;
+                Atmosphere.forceFairCover = -1f;
+            });
+            cmd("time set 6000");
+            AutoTest.resize(854, 480);
+        }
+
+        if (selected("seasons")) {
+            AutoTest.resize(1280, 720);
+            tpBiome("minecraft:forest", 0f, 4f);
+            cmd("time set 6000");
+            String[] names = {"spring", "summer", "autumn", "winter"};
+            for (int i = 0; i < names.length; i++) {
+                cmd("livingworld season set " + names[i]);
+                waitTicks(140);
+                note("season_" + names[i]);
+                shot("6" + i + "_season_" + names[i]);
+            }
+            expect("winter is far colder than summer was", () -> ENV.seasonOffsetC < -8f);
+            cmd("livingworld season set summer");
+            cmd("livingworld wind set 0.3");
+            waitTicks(100);
+            // Leaves in a light breeze, frame by frame: they may move, they must not flicker.
+            AutoTest.clip("leaves_breeze", 16, 1, 0f, 0.75f);
+            expect("leaves in a breeze do not flicker", () -> AutoTest.clipFlicker < 0.02f);
+            cmd("livingworld wind clear");
+            cmd("livingworld season set winter");
+            waitTicks(100);
+            expect("cold ground keeps snow in winter", () -> Atmosphere.INSTANCE.lyingSnow > 0.2f);
+            cmd("livingworld weather rain");
+            waitTicks(200);
+            note("season_winter_shower");
+            shot("64_season_winter_snowfall");
+            expect("a winter shower falls as snow", () -> ENV.snow > ENV.rain);
+            cmd("livingworld weather clear");
+            cmd("livingworld season set autumn");
+            tpBiome("minecraft:plains", 0f, 8f);
+            waitTicks(140);
+            shot("65_season_autumn_plains");
+            cmd("livingworld season set spring");
+            waitTicks(60);
+            AutoTest.resize(854, 480);
+        }
+
+        if (selected("realwinter")) {
+            // The opt-in rule that winter places real snow and ice, and that the thaw removes only those.
+            AutoTest.resize(1280, 720);
+            tpBiome("minecraft:taiga", 0f, 28f);
+            cmd("time set 6000");
+            cmd("execute at @s run fill ~-4 ~-1 ~4 ~4 ~-1 ~10 minecraft:water");
+            cmd("execute at @s run fill ~-4 ~ ~4 ~4 ~4 ~10 minecraft:air");
+            // A snow layer and a block of ice of the player's own: the thaw must leave them be.
+            cmd("execute at @s run setblock ~-2 ~ ~2 minecraft:snow");
+            cmd("execute at @s run setblock ~2 ~-1 ~2 minecraft:ice");
+            AutoTest.run(() -> dev.livingworld.config.ServerConfig.get().seasonalChangeRate = 256);
+            cmd("livingworld season snow on");
+            cmd("livingworld season set winter");
+            cmd("livingworld realweather rain 600");
+            waitTicks(500);
+            note("real_winter");
+            shot("80_real_winter");
+            expect("winter laid snow and ice of its own", () -> seasonalBlocks() > 200);
+            cmd("livingworld realweather clear");
+            cmd("livingworld season set summer");
+            waitTicks(700);
+            note("real_thaw");
+            shot("81_real_thaw");
+            expect("the thaw took nearly all of it away again", () -> seasonalBlocks() < 40);
+            expect("the thaw left the player's own snow and ice alone", () -> {
+                net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+                net.minecraft.util.math.BlockPos feet = client.player.getBlockPos();
+                return client.world.getBlockState(feet.add(-2, 0, 2)).isOf(net.minecraft.block.Blocks.SNOW)
+                        && client.world.getBlockState(feet.add(2, -1, 2)).isOf(net.minecraft.block.Blocks.ICE);
+            });
+            cmd("livingworld season snow off");
+            AutoTest.run(() -> dev.livingworld.config.ServerConfig.get().seasonalChangeRate = 16);
+            cmd("livingworld season set spring");
+            waitTicks(40);
+            AutoTest.resize(854, 480);
+        }
+
+        if (selected("puddles")) {
+            // Rain on stepped ground: puddles must keep to their own level and stop short of an edge.
+            AutoTest.resize(1280, 720);
+            tpBiome("minecraft:plains", 0f, 38f);
+            cmd("time set 6000");
+            cmd("execute at @s run fill ~-7 ~-1 ~2 ~7 ~-1 ~16 minecraft:stone");
+            cmd("execute at @s run fill ~-7 ~ ~2 ~7 ~4 ~16 minecraft:air");
+            cmd("execute at @s run fill ~-7 ~ ~9 ~-1 ~ ~16 minecraft:stone");
+            cmd("execute at @s run fill ~3 ~ ~5 ~7 ~ ~8 minecraft:sand");
+            cmd("execute at @s run fill ~1 ~-1 ~2 ~7 ~-1 ~4 minecraft:sand");
+            cmd("execute at @s run fill ~-3 ~ ~12 ~-1 ~2 ~14 minecraft:oak_planks");
+            // The player's own footprints, on a strip of sand laid for the purpose (the older footprint
+            // scenes walk over whatever terrain they land on, which may be a shoreline or a ledge).
+            cmd("execute at @s run fill ~-1 ~-1 ~-14 ~1 ~-1 ~-1 minecraft:sand");
+            cmd("execute at @s run fill ~-1 ~ ~-14 ~1 ~3 ~-1 minecraft:air");
+            waitTicks(30);
+            AutoTest.run(() -> FootprintTracker.INSTANCE.placed = 0);
+            look(180f, 20f);
+            walk(40, false);
+            waitTicks(6);
+            look(0f, 45f);
+            waitTicks(6);
+            shot("69_player_prints_on_sand");
+            expect("the player leaves footprints on sand", () -> FootprintTracker.INSTANCE.placed >= 6);
+            cmd("execute at @s run tp @s ~ ~ ~9");
+            look(0f, 38f);
+            waitTicks(20);
+            cmd("livingworld weather heavy_rain");
+            waitTicks(700);
+            note("puddles_rain");
+            shot("70_puddles_rain");
+            expect("the ground is soaked", () -> ENV.wetness > 0.6f);
+            cmd("livingworld weather clear");
+            waitTicks(160);
+            note("puddles_after");
+            shot("71_puddles_after_rain");
+            look(0f, 20f);
+            waitTicks(8);
+            shot("71b_puddles_glancing");
+            AutoTest.resize(854, 480);
+        }
+
         if (AutoTest.SHOWCASE) {
             Showcase.build();
+        }
+        if (AutoTest.MARKETING) {
+            Marketing.build();
         }
     }
 }

@@ -11,10 +11,12 @@
         "UV0"
     ],
     "samplers": [
-        { "name": "DiffuseSampler" }
+        { "name": "DiffuseSampler" },
+        { "name": "DepthSampler" }
     ],
     "uniforms": [
         { "name": "Step", "type": "float", "count": 2, "values": [ 0.001, 0.001 ] },
-        { "name": "Mode", "type": "float", "count": 2, "values": [ 0.0, 0.72 ] }
+        { "name": "Mode", "type": "float", "count": 2, "values": [ 0.0, 0.72 ] },
+        { "name": "SkyBloom", "type": "float", "count": 1, "values": [ 1.0 ] }
     ]
 }

@@ -4,6 +4,7 @@ import dev.livingworld.client.config.ClientConfig;
 import dev.livingworld.climate.BiomeProfile.Kind;
 import dev.livingworld.climate.ClimateMath;
 import dev.livingworld.climate.ClimateSampler;
+import dev.livingworld.climate.Seasons;
 import dev.livingworld.climate.SimulationOverrides;
 import dev.livingworld.climate.WeatherModel;
 import dev.livingworld.climate.WeatherType;
@@ -122,9 +123,44 @@ public final class ClientEnvironment {
     public float lightStrength = 1f;
     /** Lightning flash, decays within a few ticks. */
     public float flash;
+    /**
+     * The lightning that is flashing: where its light comes from (world coordinates, some way up the
+     * stroke) and how bright it is right now. The renderer treats it as a light at that place, so the
+     * side of a hill facing the strike lights up and the clouds above it glow.
+     */
+    public double boltX, boltY, boltZ;
+    public float boltPower;
     /** Set for one tick when a distant (synthetic) lightning flash happens; consumed by the audio manager. */
     public float distantThunderDistance = -1f;
     public float distantThunderPan;
+
+    // ---- the year ------------------------------------------------------------------------------
+    /** Whether seasons are running here: a world with a sky, not switched off by the player or the server. */
+    public boolean seasonsActive;
+    /** Position in the year, 0..1 (0 = first day of spring). See {@link Seasons}. */
+    public float yearPhase;
+    public Seasons.Season season = Seasons.Season.SPRING;
+    /** Length of a season in days, as currently in force. */
+    public float seasonDays = Seasons.DEFAULT_DAYS_PER_SEASON;
+    /** How strongly the surrounding biomes have seasons, 0..1 (smoothed). */
+    public float seasonality;
+    /** Shift of the daily mean temperature by the season, in degrees. */
+    public float seasonOffsetC;
+    /** Seasonal looks, each 0..1 and already scaled by {@link #seasonality}. */
+    public float autumn, winter, spring;
+    /** Calendar shift chosen with {@code /lw season set}; NaN = follow the server (or the default calendar). */
+    public float localSeasonOffsetDays = Float.NaN;
+
+    // ---- motion carried over time -----------------------------------------------------------------
+    // Anything that moves with the wind is driven by these running totals and never by the wind's
+    // direction at this instant: a pattern that is re-aimed whenever the wind wobbles swings around the
+    // world origin and appears to race.
+    /** The water's wave clock in seconds: slow in a calm, faster as the wind rises. */
+    private double waveClock, prevWaveClock;
+    /** How far the air near the ground has travelled, in blocks. */
+    private double windTravelX, windTravelZ, prevWindTravelX, prevWindTravelZ;
+    /** How far the clouds have travelled, in blocks. */
+    private double cloudTravelX, cloudTravelZ, prevCloudTravelX, prevCloudTravelZ;
 
     // ---- overrides -----------------------------------------------------------------------------
     /** Latest state from the server (test commands, forecast, survival switch). */
@@ -151,6 +187,33 @@ public final class ClientEnvironment {
 
     public float netherWeight() {
         return nether ? 1f : 0f;
+    }
+
+    /** The wave clock at this point of the frame, wrapped so it stays precise as a float. */
+    public float waveClock(float tickDelta) {
+        return (float) ((prevWaveClock + (waveClock - prevWaveClock) * tickDelta) % 3600.0);
+    }
+
+    /** Wind travel along x, scaled by {@code scale} and wrapped to {@code period} blocks. */
+    public float windTravelX(float tickDelta, double scale, double period) {
+        return wrapTravel(prevWindTravelX, windTravelX, tickDelta, scale, period);
+    }
+
+    public float windTravelZ(float tickDelta, double scale, double period) {
+        return wrapTravel(prevWindTravelZ, windTravelZ, tickDelta, scale, period);
+    }
+
+    public float cloudTravelX(float tickDelta) {
+        return wrapTravel(prevCloudTravelX, cloudTravelX, tickDelta, 1.0, 61000.0);
+    }
+
+    public float cloudTravelZ(float tickDelta) {
+        return wrapTravel(prevCloudTravelZ, cloudTravelZ, tickDelta, 1.0, 61000.0);
+    }
+
+    private static float wrapTravel(double prev, double now, float tickDelta, double scale, double period) {
+        double v = (prev + (now - prev) * tickDelta) * scale;
+        return (float) (v - Math.floor(v / period) * period);
     }
 
     private SimulationOverrides effective() {
@@ -181,6 +244,7 @@ public final class ClientEnvironment {
             wetness = 0f;
             snowCover = 0f;
             local.reset();
+            localSeasonOffsetDays = Float.NaN;
         }
         inWorld = true;
         ticks++;
@@ -225,7 +289,33 @@ public final class ClientEnvironment {
         rainFraction += (target.rainFraction - rainFraction) * kBiome;
         snowFraction += (target.snowFraction - snowFraction) * kBiome;
         dryFraction += (target.dryFraction - dryFraction) * kBiome;
+        seasonality += (target.seasonality - seasonality) * kBiome;
         dominant = target.dominant;
+
+        // ---- the year ------------------------------------------------------------------------
+        ClientConfig config = ClientConfig.get();
+        float calendarOffset = server.hasSeasonRules() ? server.seasonOffsetDays : 0f;
+        seasonDays = server.hasSeasonRules() ? server.seasonDays : Seasons.DEFAULT_DAYS_PER_SEASON;
+        if (!Float.isNaN(localSeasonOffsetDays)) {
+            calendarOffset = localSeasonOffsetDays;
+            if (seasonDays <= 0f) {
+                seasonDays = Seasons.DEFAULT_DAYS_PER_SEASON;
+            }
+        }
+        seasonsActive = config.seasons && natural && seasonDays > 0f;
+        if (seasonsActive) {
+            yearPhase = Seasons.yearPhase(timeOfDay, seasonDays, calendarOffset);
+            season = Seasons.of(yearPhase);
+            seasonOffsetC = Seasons.temperatureOffsetC(yearPhase, seasonality);
+            autumn = Seasons.autumnColour(yearPhase) * seasonality;
+            winter = Seasons.winterBareness(yearPhase) * seasonality;
+            spring = Seasons.springFreshness(yearPhase) * seasonality;
+        } else {
+            seasonOffsetC = 0f;
+            autumn = 0f;
+            winter = 0f;
+            spring = 0f;
+        }
 
         // ---- shelter and light ---------------------------------------------------------------
         if (fresh || ticks % 5 == 2) {
@@ -276,13 +366,19 @@ public final class ClientEnvironment {
         lightZ /= len;
 
         // ---- weather -------------------------------------------------------------------------
-        ClientConfig config = ClientConfig.get();
         SimulationOverrides o = effective();
         rainGradient = natural ? world.getRainGradient(1f) : 0f;
         thunderGradient = natural ? world.getThunderGradient(1f) : 0f;
         float intensity = WeatherModel.intensity(rainGradient, thunderGradient, worldTime, salt) * (1f - dryFraction);
         float stormTarget = thunderGradient;
         float snowShare = rainFraction + snowFraction > 0.001f ? snowFraction / (rainFraction + snowFraction) : 0f;
+        if (seasonsActive) {
+            // In the cold half of the year what falls is decided by the air, not by the biome: a winter
+            // shower over a forest comes down as snow. (Never the other way: where the world keeps snow
+            // on the ground, it keeps snowing.)
+            // Snow reaches the ground while the air is still a few degrees above freezing.
+            snowShare = Math.max(snowShare, LWMath.smoothstep(4f, 0.5f, ambientC) * LWMath.clamp01(seasonality * 1.5f));
+        }
         float forcedSand = -1f;
         float forcedWind = 0f;
         boolean forced = o.hasWeather(worldTime);
@@ -347,6 +443,20 @@ public final class ClientEnvironment {
         float boost = Math.max(WeatherModel.windBoost(precip, storm, sand, snowShare), forcedWind);
         wind.update(worldTime, salt, boost, windiness * userWind, altitudeBoost, overrideWind, camX, camZ);
 
+        prevWaveClock = waveClock;
+        prevWindTravelX = windTravelX;
+        prevWindTravelZ = windTravelZ;
+        prevCloudTravelX = cloudTravelX;
+        prevCloudTravelZ = cloudTravelZ;
+        float gale = Math.min(wind.speed, 1.5f);
+        waveClock += DT * (0.42 + 1.1 * gale);
+        windTravelX += wind.dirX * wind.speed * WindField.BLOCKS_PER_TICK;
+        windTravelZ += wind.dirZ * wind.speed * WindField.BLOCKS_PER_TICK;
+        // Clouds ride the steadier wind aloft: they never quite stop, and a storm drives them hard.
+        double aloft = (2.2 + 15.0 * Math.min(wind.base, 1.4f)) * DT;
+        cloudTravelX += wind.dirX * aloft;
+        cloudTravelZ += wind.dirZ * aloft;
+
         float windExposureTarget = natural ? 0.12f + 0.88f * openness : 0.35f * openness + 0.1f;
         windExposure += (windExposureTarget - windExposure) * kShelter;
         windLocal = wind.speed * windExposure;
@@ -368,8 +478,8 @@ public final class ClientEnvironment {
         float sun = natural ? skyLight * (1f - cloudCover) * rainExposure : 0f;
         float ambientTarget = o.hasTemperature()
                 ? o.temperatureC
-                : ClimateMath.ambient(meanC, humidity, timeOfDay, camY, precip * skyLight, storm, sun, cave, heatSources,
-                natural ? 1f : 0f);
+                : ClimateMath.ambient(meanC + seasonOffsetC, humidity, timeOfDay, camY, precip * skyLight, storm, sun, cave,
+                heatSources, natural ? 1f : 0f);
         ambientC = fresh ? ambientTarget : LWMath.approach(ambientC, ambientTarget, 0.35f, DT);
         feelsLikeC = ClimateMath.feelsLike(ambientC, wind.speed, windExposure, 0f);
 
@@ -382,6 +492,25 @@ public final class ClientEnvironment {
         }
         if (world.getLightningTicksLeft() > 0) {
             flash = Math.max(flash, 1f);
+            // The stroke nearest the camera is the one whose light matters.
+            double best = Double.MAX_VALUE;
+            for (Entity entity : world.getEntities()) {
+                if (entity instanceof net.minecraft.entity.LightningEntity) {
+                    double d = entity.squaredDistanceTo(camX, camY, camZ);
+                    if (d < best) {
+                        best = d;
+                        boltX = entity.getX();
+                        boltY = entity.getY() + 45.0;
+                        boltZ = entity.getZ();
+                    }
+                }
+            }
+            if (best == Double.MAX_VALUE) {
+                // A flash with no stroke in view of this client: overhead, in the cloud.
+                boltX = camX;
+                boltY = camY + 140.0;
+                boltZ = camZ;
+            }
         }
         distantThunderDistance = -1f;
         if (natural && storm > 0.4f && config.distantLightning) {
@@ -392,9 +521,19 @@ public final class ClientEnvironment {
                 float distance = 0.45f + 0.55f * Noise.rand(t, salt ^ 0x1234);
                 flash = Math.max(flash, 0.55f * (1.3f - distance));
                 distantThunderDistance = distance;
-                distantThunderPan = Noise.rand(t, salt ^ 0x4321) * 2f - 1f;
+                // It happens somewhere: a bearing in the world, up in the cloud, a few hundred blocks off.
+                // The thunder is then heard from the side it was seen on.
+                float bearing = Noise.rand(t, salt ^ 0x4321) * LWMath.TAU;
+                double reach = 260.0 + 640.0 * distance;
+                boltX = camX + Math.cos(bearing) * reach;
+                boltY = camY + 150.0;
+                boltZ = camZ + Math.sin(bearing) * reach;
+                float yaw = (float) Math.toRadians(camera.getYaw());
+                float rightX = -MathHelper.cos(yaw), rightZ = -MathHelper.sin(yaw);
+                distantThunderPan = LWMath.clamp((float) (Math.cos(bearing) * rightX + Math.sin(bearing) * rightZ), -1f, 1f);
             }
         }
+        boltPower = flash;
     }
 
     private int config_forecast(SimulationOverrides o) {

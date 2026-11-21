@@ -67,15 +67,16 @@ public final class Compat {
     }
 
     /**
-     * Vegetation sway is implemented in the vanilla terrain shaders, which Sodium replaces with its own
-     * and shader packs replace with theirs.
+     * Vegetation sway and seasonal foliage are done in the terrain vertex shader: the mod's override of
+     * the vanilla one, or Sodium's once the bridge has patched it. A shader pack replaces both.
      */
     public static boolean vegetationSwayAvailable() {
-        return !SODIUM && !shaderPackActive();
+        return (!SODIUM || dev.livingworld.client.compat.sodium.SodiumState.ready()) && !shaderPackActive();
     }
 
     public static String describe() {
         return "sodium=" + SODIUM + " iris=" + IRIS + " shaderPack=" + shaderPackActive()
-                + " customShaders=" + customShadersAllowed();
+                + " customShaders=" + customShadersAllowed()
+                + (SODIUM ? " " + dev.livingworld.client.compat.sodium.SodiumState.describe() : "");
     }
 }

@@ -1,0 +1,16 @@
+{
+  "wildlife.birds": {
+    "sounds": [
+      "livingworld:wildlife/birds/bird_01",
+      "livingworld:wildlife/birds/bird_02",
+      "livingworld:wildlife/birds/bird_03"
+    ]
+  },
+  "wildlife.frogs": {
+    "sounds": [
+      "livingworld:wildlife/frogs/frog_01",
+      "livingworld:wildlife/frogs/frog_02",
+      "livingworld:wildlife/frogs/frog_03"
+    ]
+  }
+}

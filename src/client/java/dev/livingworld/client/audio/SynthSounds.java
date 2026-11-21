@@ -132,7 +132,7 @@ final class SynthSounds {
         }
     }
 
-    /** A short positional clip (footstep layers, splashes). */
+    /** A short positional clip of synthesised sound. */
     static final class Clip extends AbstractSoundInstance implements FabricSoundInstance {
         private final short[] pcm;
 

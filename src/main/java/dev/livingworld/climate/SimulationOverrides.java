@@ -22,6 +22,18 @@ public final class SimulationOverrides {
     public long rainStartTime = -1L;
     /** Whether the server applies heat and cold survival penalties. */
     public boolean gameplayEffects;
+    /**
+     * Length of a season in days as the server runs it: negative = nothing received (a server without the
+     * mod; the client then keeps its own calendar), 0 = the server has switched seasons off.
+     */
+    public float seasonDays = -1f;
+    /** Calendar shift in days set through {@code /livingworld season set}. */
+    public float seasonOffsetDays;
+
+    /** True once a server running the mod has told this client how it keeps the calendar. */
+    public boolean hasSeasonRules() {
+        return seasonDays >= 0f;
+    }
 
     public boolean hasWeather(long worldTime) {
         return weather != null && worldTime < weatherUntil;
@@ -52,6 +64,8 @@ public final class SimulationOverrides {
         buf.writeFloat(wind);
         buf.writeLong(rainStartTime);
         buf.writeBoolean(gameplayEffects);
+        buf.writeFloat(seasonDays);
+        buf.writeFloat(seasonOffsetDays);
     }
 
     public void read(PacketByteBuf buf) {
@@ -64,6 +78,8 @@ public final class SimulationOverrides {
         wind = buf.readFloat();
         rainStartTime = buf.readLong();
         gameplayEffects = buf.readBoolean();
+        seasonDays = buf.readFloat();
+        seasonOffsetDays = buf.readFloat();
     }
 
     public void copyFrom(SimulationOverrides other) {
@@ -74,6 +90,8 @@ public final class SimulationOverrides {
         wind = other.wind;
         rainStartTime = other.rainStartTime;
         gameplayEffects = other.gameplayEffects;
+        seasonDays = other.seasonDays;
+        seasonOffsetDays = other.seasonOffsetDays;
     }
 
     public void reset() {
@@ -84,5 +102,7 @@ public final class SimulationOverrides {
         wind = -1f;
         rainStartTime = -1L;
         gameplayEffects = false;
+        seasonDays = -1f;
+        seasonOffsetDays = 0f;
     }
 }

@@ -55,6 +55,9 @@ public final class DebugHud {
             int color = felt < 0f ? 0xFF9AD0FF : felt > 32f ? 0xFFFFB070 : 0xFFE8E8E8;
             context.drawTextWithShadow(font, text, 6, 6, color);
         }
+        if (config.enabled && config.seasonHud && e.seasonsActive && mode == Mode.OFF && !client.options.debugEnabled) {
+            drawCalendar(context, font, e, 6, config.temperatureHud ? 19 : 6);
+        }
         if (mode == Mode.OFF) {
             return;
         }
@@ -80,6 +83,12 @@ public final class DebugHud {
                 LINES.add(f("weather %s%s  precip %.2f (rain %.2f snow %.2f)  sand %.2f  storm %.2f  clouds %.2f%s",
                         e.weatherType.id(), forced, e.precip, e.rain, e.snow, e.sand, e.storm, e.cloudCover,
                         forecast >= 0 ? "  rain in " + forecast / 20 + "s" : ""));
+                LINES.add(f("year: %s  phase %.3f  seasonality %.2f  offset %+.1f°C  autumn %.2f  winter %.2f  spring %.2f  lying snow %.2f",
+                        dev.livingworld.client.ClientCommands.describeSeason(), e.yearPhase, e.seasonality, e.seasonOffsetC, e.autumn,
+                        e.winter, e.spring, a.lyingSnow));
+                LINES.add(f("sky: clouds %s  cover %.2f  thickness %.0f  shadow %.2f  stars %.2f  aurora %.2f  rainbow %.2f",
+                        a.cloudsDrawn ? "drawn" : "vanilla", a.cloudCoverage, a.cloudThickness, a.cloudShadow, a.starlight, a.aurora,
+                        a.rainbow));
                 LINES.add(f("ground wet %.2f  fresh snow %.2f  player wet %.2f  cold %.2f  heat %.2f  frost %.2f  lens %.2f",
                         e.wetness, e.snowCover, PlayerExposure.INSTANCE.wet, PlayerExposure.INSTANCE.cold, PlayerExposure.INSTANCE.heat,
                         PlayerExposure.INSTANCE.frost, PlayerExposure.INSTANCE.lensDrops));
@@ -131,6 +140,33 @@ public final class DebugHud {
             context.drawText(font, line, 4, y, 0xFFE6F2F5, false);
             y += 10;
         }
+    }
+
+    /** Spring green, summer gold, autumn orange, winter ice. */
+    private static final int[] SEASON_COLOURS = {0xFF7CC66F, 0xFFE9C546, 0xFFD97A35, 0xFFAED3EC};
+
+    /**
+     * The calendar: the season and the day within it, over a bar that is the whole year, a quarter for
+     * each season, with a mark where today falls.
+     */
+    private static void drawCalendar(DrawContext context, TextRenderer font, ClientEnvironment e, int x, int y) {
+        int season = e.season.ordinal();
+        float days = e.seasonDays;
+        String length = days == Math.rint(days) ? String.valueOf((int) days) : String.format(Locale.ROOT, "%.1f", days);
+        String label = net.minecraft.text.Text.translatable("livingworld.season." + e.season.id()).getString() + " \u00b7 "
+                + net.minecraft.text.Text.translatable("livingworld.season.day",
+                dev.livingworld.climate.Seasons.dayOfSeason(e.yearPhase, days), length).getString();
+        int width = Math.max(88, font.getWidth(label) + 6);
+        context.fill(x - 3, y - 3, x + width + 3, y + 19, 0x78000000);
+        context.drawTextWithShadow(font, label, x, y, SEASON_COLOURS[season]);
+        int barY = y + 12;
+        for (int i = 0; i < 4; i++) {
+            int x0 = x + width * i / 4, x1 = x + width * (i + 1) / 4 - 1;
+            int colour = i == season ? SEASON_COLOURS[i] : (SEASON_COLOURS[i] & 0x00FFFFFF) | 0x70000000;
+            context.fill(x0, barY, x1, barY + 4, colour);
+        }
+        int mark = x + Math.min(width - 1, Math.round(e.yearPhase * width));
+        context.fill(mark - 1, barY - 1, mark + 1, barY + 5, 0xFFFFFFFF);
     }
 
     private static String f(String format, Object... args) {

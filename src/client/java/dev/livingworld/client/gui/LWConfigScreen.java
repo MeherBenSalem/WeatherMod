@@ -196,6 +196,13 @@ public final class LWConfigScreen extends Screen {
 
     // ---- input -----------------------------------------------------------------------------------
 
+    /** Opens a page of the settings without a click (for the documentation screenshots). */
+    public LWConfigScreen show(Category category) {
+        selected = category;
+        scroll = 0f;
+        return this;
+    }
+
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (super.mouseClicked(mouseX, mouseY, button)) {

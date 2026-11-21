@@ -7,6 +7,7 @@
 
 #moj_import <light.glsl>
 #moj_import <fog.glsl>
+#moj_import <lw_water.glsl>
 
 in vec3 Position;
 in vec4 Color;
@@ -21,7 +22,8 @@ uniform mat4 ProjMat;
 uniform vec3 ChunkOffset;
 uniform int FogShape;
 
-uniform vec4 LWWater;    // x = time in seconds, yz = wind direction, w = wave height (0 = water shading off)
+uniform vec4 LWWater;    // x = wave clock in seconds, yz = ripple drift, w = wave height (0 = water shading off)
+uniform vec4 LWWind;     // xy = wind direction, z = wind speed, w = seconds of real time
 uniform vec3 LWCamera;   // camera position wrapped to 4096 blocks, for a stable world-space phase
 
 out float vertexDistance;
@@ -50,13 +52,10 @@ void main() {
             // sit on whole block heights and stay put so nothing ever opens a gap.
             float h = fract(Position.y);
             float surface = step(0.05, h) * step(h, 0.95);
-            vec2 w = LWWater.yz;
-            vec2 c = vec2(-w.y, w.x);
-            float t = LWWater.x;
-            float swell = sin(dot(world.xz, w) * 0.9 - t * 1.5) * 0.55
-                        + sin(dot(world.xz, w * 0.6 + c * 0.8) * 1.7 - t * 2.1 + 1.3) * 0.3
-                        + sin(dot(world.xz, c) * 1.3 + t * 1.1) * 0.15;
-            pos.y += swell * 0.045 * LWWater.w * (0.35 + 0.65 * sky) * surface;
+            // The long swell only, along fixed headings (see lw_water.glsl): a gentle rise and fall that
+            // makes the waterline lap at the shore. It grows with the wind.
+            float swell = lwSwell(world.xz, LWWater.x);
+            pos.y += swell * 0.03 * LWWater.w * (0.45 + 0.9 * min(LWWind.z, 1.4)) * (0.35 + 0.65 * sky) * surface;
         }
     }
 

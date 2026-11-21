@@ -50,6 +50,10 @@ public final class ColumnCache {
     private boolean textureDirty;
     private int ticksSinceUpload;
 
+    /** Water columns met in the sweep now under way, and in the last complete one. */
+    private int waterThisSweep;
+    private int waterLastSweep;
+
     /** Share of exposed surfaces near the camera per audio class: leaves, stone, water, wood, soft. */
     public final float[] surfaceMix = new float[5];
 
@@ -63,10 +67,17 @@ public final class ColumnCache {
             return;
         }
         for (int n = 0; n < SWEEP_PER_TICK; n++) {
+            if ((sweepCursor & (COUNT - 1)) == 0) {
+                waterLastSweep = waterThisSweep;
+                waterThisSweep = 0;
+            }
             int i = sweepCursor++ & (COUNT - 1);
             int wx = camX - SIZE / 2 + (i & MASK);
             int wz = camZ - SIZE / 2 + (i >> 6);
             refresh(index(wx, wz), wx, wz);
+            if (topMaterial[index(wx, wz)] == (byte) SurfaceMaterial.WATER.ordinal()) {
+                waterThisSweep++;
+            }
         }
         ticksSinceUpload++;
     }
@@ -99,6 +110,54 @@ public final class ColumnCache {
 
     public SurfaceMaterial groundMaterial(int wx, int wz) {
         return MATERIALS[groundMaterial[lookup(wx, wz)]];
+    }
+
+    /** Whether there is any open water within the cached area (about 32 blocks around the camera). */
+    public boolean hasWater() {
+        return waterLastSweep > 0 || waterThisSweep > 0;
+    }
+
+    /**
+     * How close a column is to the waterline, 0..1. For ground: how near open water at about its own
+     * level is (1 beside it, 0 from about two blocks back, or where the ground stands more than a block
+     * above the water). For water: how near land is (just under 1 beside it, 0 from four blocks out).
+     * Read straight from the arrays, never refreshing a neighbour, so it is safe to call while a column
+     * is being refreshed.
+     */
+    private float shore(int i, int wx, int wz) {
+        SurfaceMaterial own = MATERIALS[topMaterial[i]];
+        if (own == SurfaceMaterial.NONE) {
+            return 0f;
+        }
+        boolean water = own == SurfaceMaterial.WATER;
+        byte waterId = (byte) SurfaceMaterial.WATER.ordinal();
+        byte noneId = (byte) SurfaceMaterial.NONE.ordinal();
+        float best = 0f;
+        for (int dz = -3; dz <= 3; dz++) {
+            for (int dx = -3; dx <= 3; dx++) {
+                if (dx == 0 && dz == 0) {
+                    continue;
+                }
+                int j = index(wx + dx, wz + dz);
+                if (!valid[j] || colX[j] != wx + dx || colZ[j] != wz + dz || topMaterial[j] == noneId
+                        || (topMaterial[j] == waterId) == water) {
+                    continue;
+                }
+                // How far the ground of the pair stands above the water of the pair.
+                float rise = water ? top[j] - top[i] : top[i] - top[j];
+                float distance = (float) Math.sqrt(dx * dx + dz * dz);
+                if (water) {
+                    // Land of any height counts: waves break against a cliff as they do on a beach.
+                    if (rise > -0.3f) {
+                        best = Math.max(best, 1f - (distance - 0.5f) / 3f);
+                    }
+                } else if (rise >= -0.3f && rise <= 1.25f) {
+                    float low = rise < 0.45f ? 1f : 1f - (rise - 0.45f) / 0.8f;
+                    best = Math.max(best, (1f - (distance - 1f) / 1.6f) * low);
+                }
+            }
+        }
+        return Math.max(0f, Math.min(1f, best));
     }
 
     public boolean hasCanopy(int wx, int wz) {
@@ -197,12 +256,18 @@ public final class ColumnCache {
             return;
         }
         int h = Math.max(0, Math.min(65535, Math.round((top[i] + 64f) * 16f)));
-        int cap = Math.round(puddleCapacity(MATERIALS[topMaterial[i]]) * 255f);
+        // Alpha: how readily water pools here, in the top seven bits; the lowest bit is set for ice (which
+        // the wind sweeps clear of snow, so lying snow is drawn on it in drifts instead of a blanket).
+        int cap = (Math.round(puddleCapacity(MATERIALS[topMaterial[i]]) * 127f) << 1)
+                | (MATERIALS[topMaterial[i]] == SurfaceMaterial.ICE ? 1 : 0);
         int r = h & 255;
         int g = (h >> 8) & 255;
-        // Blue: 1 where the surface is solid ground (takes damp darkening and snow), 0 for water / nothing.
+        // Blue, top bit: set where the surface is solid ground (takes damp darkening and snow), clear for
+        // water / nothing. Low seven bits: how near the column is to the waterline (ground: to water;
+        // water: to land).
         SurfaceMaterial material = MATERIALS[topMaterial[i]];
-        int b = material == SurfaceMaterial.WATER || material == SurfaceMaterial.NONE ? 0 : 255;
+        int near = Math.round(shore(i, wx, wz) * 127f);
+        int b = material == SurfaceMaterial.NONE ? 0 : material == SurfaceMaterial.WATER ? near : 128 | near;
         // NativeImage stores ABGR.
         image.setColor(wx & MASK, wz & MASK, (cap << 24) | (b << 16) | (g << 8) | r);
         textureDirty = true;

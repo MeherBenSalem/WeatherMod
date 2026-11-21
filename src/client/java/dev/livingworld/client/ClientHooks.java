@@ -16,6 +16,11 @@ public final class ClientHooks {
         return active() && ClientConfig.get().customPrecipitation;
     }
 
+    /** The game's own flat clouds are not drawn while the mod draws its cloud layer. */
+    public static boolean replacesVanillaClouds() {
+        return active() && dev.livingworld.client.env.Atmosphere.INSTANCE.cloudsDrawn;
+    }
+
     /**
      * Vanilla's rain splash particles and rain loop are only suppressed when the mod provides both
      * replacements; otherwise the player would lose the sound of rain.

@@ -2,6 +2,7 @@ package dev.livingworld;
 
 import dev.livingworld.config.ServerConfig;
 import dev.livingworld.server.LWCommands;
+import dev.livingworld.server.SeasonalWorld;
 import dev.livingworld.server.ServerClimateSynchronizer;
 import dev.livingworld.server.TemperatureGameplay;
 import dev.livingworld.surface.SurfaceMaterialResolver;
@@ -29,6 +30,7 @@ public final class LivingWorld implements ModInitializer {
         ServerConfig.get();
         ServerClimateSynchronizer.init();
         TemperatureGameplay.init();
+        SeasonalWorld.init();
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> LWCommands.register(dispatcher));
         CommonLifecycleEvents.TAGS_LOADED.register((registries, client) -> SurfaceMaterialResolver.invalidate());
         LOGGER.info("Living World initialised (survival temperature rules: {})",

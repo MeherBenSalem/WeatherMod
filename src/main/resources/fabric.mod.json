@@ -14,8 +14,13 @@
     "modmenu": ["dev.livingworld.client.compat.ModMenuIntegration"]
   },
   "mixins": [
+    "livingworld.mixins.json",
     {
       "config": "livingworld.client.mixins.json",
+      "environment": "client"
+    },
+    {
+      "config": "livingworld.sodium.mixins.json",
       "environment": "client"
     }
   ],

@@ -168,9 +168,11 @@ public final class AmbientSpawner {
         float windVX = env.wind.dirX * env.windLocal * WindField.BLOCKS_PER_TICK;
         float windVZ = env.wind.dirZ * env.windLocal * WindField.BLOCKS_PER_TICK;
 
-        // Falling leaves: a steady trickle, a flurry when the wind gets up.
+        // Falling leaves: a steady trickle, a flurry when the wind gets up. Autumn brings them down in
+        // earnest; by midwinter there is little left to fall.
         if (config.fallingLeaves && env.foliage > 0.2f && env.ambientC > -6f) {
-            int n = count(0.2f * env.foliage * (0.25f + 2.2f * wind) * scale);
+            float seasonal = (1f + 3.5f * env.autumn) * (1f - 0.85f * env.winter);
+            int n = count(0.2f * env.foliage * (0.25f + 2.2f * wind) * scale * seasonal);
             for (int i = 0; i < n; i++) {
                 int wx = cx + rnd().nextInt(-16, 17);
                 int wz = cz + rnd().nextInt(-16, 17);
@@ -188,8 +190,23 @@ public final class AmbientSpawner {
                     continue;
                 }
                 int c = leafColor(world, wx, MathHelper.floor(top) - 1, wz);
-                Fx.leaf(wx + rf(), y, wz + rf(), windVX * 0.5f, windVZ * 0.5f,
-                        ((c >> 16) & 255) / 255f, ((c >> 8) & 255) / 255f, (c & 255) / 255f);
+                float r = ((c >> 16) & 255) / 255f, g = ((c >> 8) & 255) / 255f, b = (c & 255) / 255f;
+                // A falling leaf has the colour the canopy has turned (conifers, red == blue, stay green).
+                boolean seasonalTint = config.seasonalFoliage && g > r * 1.07f && g > b * 1.07f && Math.abs(r - b) > 0.04f * g;
+                if (seasonalTint && env.autumn + env.winter > 0.01f) {
+                    float turn = rf();
+                    float tr = LWMath.lerp(1f, 0.78f, turn), tg = LWMath.lerp(0.78f, 0.24f, turn), tb = LWMath.lerp(0.2f, 0.11f, turn);
+                    float amount = LWMath.clamp01(env.autumn * (0.6f + 0.8f * rf()));
+                    r = LWMath.lerp(r, tr * g, amount);
+                    b = LWMath.lerp(b, tb * g, amount);
+                    g = LWMath.lerp(g, tg * g, amount);
+                    float brown = env.winter * 0.85f;
+                    float lum = Math.max(r, Math.max(g, b));
+                    r = LWMath.lerp(r, 0.44f * lum, brown);
+                    g = LWMath.lerp(g, 0.35f * lum, brown);
+                    b = LWMath.lerp(b, 0.25f * lum, brown);
+                }
+                Fx.leaf(wx + rf(), y, wz + rf(), windVX * 0.5f, windVZ * 0.5f, r, g, b);
             }
         }
 
