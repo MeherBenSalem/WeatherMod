@@ -252,7 +252,7 @@ public final class ClientEnvironment {
         worldTime = world.getGameTime();
         timeOfDay = world.getOverworldClockTime();
 
-        Camera camera = client.gameRenderer.getMainCamera();
+        Camera camera = client.gameRenderer.mainCamera();
         Vec3 eye = camera.isInitialized() ? camera.position() : viewer.getEyePosition();
         // Ground wetness and fresh snow describe the place you were in. After a long jump (teleport,
         // respawn) they no longer apply: start from what the weather here implies.

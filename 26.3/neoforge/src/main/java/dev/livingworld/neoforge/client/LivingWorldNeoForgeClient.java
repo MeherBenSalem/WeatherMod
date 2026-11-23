@@ -49,7 +49,7 @@ public final class LivingWorldNeoForgeClient {
         // The level's submit phase: the pose stack is camera-relative (translation only).
         bus.addListener((SubmitCustomGeometryEvent event) -> {
             Minecraft mc = Minecraft.getInstance();
-            LivingWorldClient.onSubmit(event.getPoseStack(), event.getSubmitNodeCollector(), mc.gameRenderer.getMainCamera(),
+            LivingWorldClient.onSubmit(event.getPoseStack(), event.getSubmitNodeCollector(), mc.gameRenderer.mainCamera(),
                     mc.getDeltaTracker().getGameTimeDeltaPartialTick(false));
         });
         bus.addListener((RegisterClientCommandsEvent event) -> LivingWorldClient.registerCommands(event.getDispatcher(),

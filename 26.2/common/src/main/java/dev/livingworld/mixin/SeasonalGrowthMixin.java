@@ -21,14 +21,14 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  */
 @Mixin({CropBlock.class, StemBlock.class, SaplingBlock.class, SweetBerryBushBlock.class, CocoaBlock.class})
 public abstract class SeasonalGrowthMixin {
-    @Inject(method = "randomTick", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "randomTick", at = @At("HEAD"), cancellable = true, require = 0)
     private void livingworld$season(BlockState state, ServerLevel world, BlockPos pos, RandomSource random, CallbackInfo ci) {
         if (!SeasonalGrowth.allow(world, pos, random)) {
             ci.cancel();
         }
     }
 
-    @Inject(method = "randomTick", at = @At("TAIL"))
+    @Inject(method = "randomTick", at = @At("TAIL"), require = 0)
     private void livingworld$spring(BlockState state, ServerLevel world, BlockPos pos, RandomSource random, CallbackInfo ci) {
         SeasonalGrowth.bonus(world, pos, random);
     }

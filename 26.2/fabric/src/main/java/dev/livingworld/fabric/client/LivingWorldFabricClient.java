@@ -31,7 +31,7 @@ public final class LivingWorldFabricClient implements ClientModInitializer {
         // SubmitCustomGeometryEvent.
         LevelRenderEvents.COLLECT_SUBMITS.register(context -> {
             Minecraft mc = Minecraft.getInstance();
-            LivingWorldClient.onSubmit(context.poseStack(), context.submitNodeCollector(), mc.gameRenderer.getMainCamera(),
+            LivingWorldClient.onSubmit(context.poseStack(), context.submitNodeCollector(), mc.gameRenderer.mainCamera(),
                     mc.getDeltaTracker().getGameTimeDeltaPartialTick(false));
         });
 

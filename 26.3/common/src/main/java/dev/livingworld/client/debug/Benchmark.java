@@ -66,8 +66,8 @@ public final class Benchmark {
                 e.ambientC, e.wind.speed, e.precip, e.sand);
         beginPhase();
         if (client.player != null) {
-            client.player.displayClientMessage(Component.literal("[Living World] Benchmark started (" + Math.max(3, seconds / 2) * 2
-                    + " s). Keep the camera still.").withStyle(ChatFormatting.AQUA), false);
+            client.player.sendSystemMessage(Component.literal("[Living World] Benchmark started (" + Math.max(3, seconds / 2) * 2
+                    + " s). Keep the camera still.").withStyle(ChatFormatting.AQUA));
         }
     }
 
@@ -172,10 +172,10 @@ public final class Benchmark {
             LivingWorld.LOGGER.warn("Could not write the benchmark report: {}", e.toString());
         }
         if (client.player != null) {
-            client.player.displayClientMessage(Component.literal(String.format(Locale.ROOT,
+            client.player.sendSystemMessage(Component.literal(String.format(Locale.ROOT,
                     "[Living World] ON %.0f fps / OFF %.0f fps (1%% low %.0f / %.0f). Cost %.2f ms per frame. Details in livingworld-benchmark.txt",
                     1000.0 / Math.max(0.001, onAvg), 1000.0 / Math.max(0.001, avgMs), 1000.0 / Math.max(0.001, onLow),
-                    1000.0 / Math.max(0.001, lowMs), onAvg - avgMs)).withStyle(ChatFormatting.AQUA), false);
+                    1000.0 / Math.max(0.001, lowMs), onAvg - avgMs)).withStyle(ChatFormatting.AQUA));
         }
     }
 }

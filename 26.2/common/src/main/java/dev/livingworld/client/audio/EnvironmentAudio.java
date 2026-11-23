@@ -292,7 +292,7 @@ public final class EnvironmentAudio implements AmbientSpawner.EventListener {
             return;
         }
         // Pan from the angle between the view direction and the drip.
-        float yaw = (float) Math.toRadians(client.gameRenderer.getMainCamera().getYRot());
+        float yaw = (float) Math.toRadians(client.gameRenderer.mainCamera().yRot());
         float rightX = -Mth.cos(yaw), rightZ = -Mth.sin(yaw);
         float dist = (float) Math.sqrt(dx * dx + dz * dz) + 0.5f;
         float pan = LWMath.clamp((dx * rightX + dz * rightZ) / dist, -1f, 1f);

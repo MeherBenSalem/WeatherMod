@@ -68,7 +68,7 @@ public final class SeasonalWorld {
             return;
         }
         SeasonalBlocks blocks = SeasonalBlocks.get(world);
-        RandomSource random = world.random;
+        RandomSource random = world.getRandom();
         boolean falling = world.isRaining();
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
         for (ServerPlayer player : world.players()) {
