@@ -1,1 +1,1 @@
-See-through water, drifting 3D clouds, four seasons, storms that build, footprints and a synthesised soundscape for Fabric 1.20.1. No shader pack needed, works with Sodium, and runs client-side on any server.
+See-through water, drifting 3D clouds, four seasons, storms that build, footprints and a synthesised soundscape for Minecraft 1.20.1 to 26.3 on Fabric, Forge and NeoForge. No shader pack needed; runs client-side on any server.

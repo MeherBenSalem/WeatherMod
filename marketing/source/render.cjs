@@ -12,7 +12,12 @@ const { spawnSync } = require('child_process');
 // The release and what it runs on. A new Minecraft version or loader is one line here
 // (plus the platform line in curseforge/description.md).
 const RELEASE = { version: '1.0', name: 'An environmental realism engine' };
-const VERSIONS = [{ minecraft: '1.20.1', loaders: ['Fabric'] }];
+const VERSIONS = [
+  { minecraft: '1.20.1', loaders: ['Fabric', 'Forge'] },
+  { minecraft: '1.21.1', loaders: ['Fabric', 'NeoForge'] },
+  { minecraft: '26.2', loaders: ['Fabric', 'NeoForge'] },
+  { minecraft: '26.3', loaders: ['Fabric', 'NeoForge'] },
+];
 const LOADERS = ['Fabric', 'Forge', 'NeoForge'].filter((loader) => VERSIONS.some((v) => v.loaders.includes(loader)));
 
 // The palette is a sky through a day and a year: night and dusk behind everything, then one colour per subject.

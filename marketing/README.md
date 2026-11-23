@@ -5,7 +5,7 @@ Listing copy and artwork for CurseForge and Modrinth. Nothing here ships in the 
 | Path | What it is |
 |------|------------|
 | `curseforge/description.md` | The project description (Markdown; also works on Modrinth). Images load from this repo's `main` branch. |
-| `curseforge/summary.txt` | The one-line summary (208 characters; the limit is 250). |
+| `curseforge/summary.txt` | The one-line summary (the limit is 250 characters). |
 | `images/banner.png` | 1800×600 header banner. |
 | `images/icon.png` | 512×512 project icon: the mod's in-jar icon (`common/src/main/resources/assets/livingworld/icon.png`, 128×128) redrawn at listing size. |
 | `images/card-*.png` | 1600×900 feature cards used in the description and as gallery images. |
@@ -30,7 +30,7 @@ blue for winter.
   Modrinth galleries and replace each URL in `description.md`.
 - The **Docs** link in the description points at `https://nightbeam.dev/docs/living-world`. That page has to exist,
   or the link has to go.
-- The description says the mod is **MIT**-licensed (it is: see `LICENSE`) and needs only Fabric API.
+- The description says the mod is **MIT**-licensed (it is: see `LICENSE`) and needs only Fabric API on Fabric (nothing on Forge and NeoForge).
 - Every number in the description and on the cards comes from the code: the presets from `QualityPreset`, the
   seasons from `Seasons` and `ServerConfig`, the growth rates from `Seasons.growth`. If one of those changes, the
   copy and the card that quotes it have to follow.

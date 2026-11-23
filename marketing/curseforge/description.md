@@ -9,9 +9,11 @@ and lets everything you see and hear read from it. Water is see-through and mirr
 clouds are three-dimensional, drift with the wind and shade the land. The year turns through four seasons. Rain
 arrives the way weather does, and the ground, the grass and your footprints answer it.
 
-No shader pack is needed, and it works with Sodium.
+No shader pack is needed, and on 1.20.1 it works with Sodium (Fabric) and Embeddium (Forge).
 
-Fabric · Minecraft 1.20.1 · runs on the client alone, on any server · needs Fabric API · Mod Menu is optional
+Minecraft 1.20.1 on Fabric and Forge · 1.21.1, 26.2 and 26.3 on Fabric and NeoForge · runs on the client alone, on any server · needs Fabric API on Fabric · Mod Menu is optional
+
+**On 26.2 and 26.3** the game's new renderer leaves no place for the mod's own shaders, so the see-through water, the 3D clouds, the sky and fog colours, swaying plants and the atmosphere effects (mist, wet ground, light shafts, colour grading) are not drawn there. The weather, seasons, wind, rain and snow, footprints, frost, sound, camera effects and every gameplay rule work as on the other versions.
 
 ![divider](https://raw.githubusercontent.com/MeherBenSalem/WeatherMod/main/marketing/images/divider.png)
 
@@ -141,7 +143,7 @@ Press **F9** in the game, run `/lw config`, or use Mod Menu. There are 14 pages 
 | Client only, any server | Every visual and sound. Wind, weather and season come from the world's own time, so players with the mod still see the same thing. |
 | Client and server | The same, plus commands everyone sees, clouds that gather before the rain, a season length the server decides, and the opt-in rules above. |
 | Server only | The commands and the opt-in rules. Vanilla clients can join. |
-| Sodium 0.5.x | Supported, tested with 0.5.11. Water, vegetation sway and seasonal colours work as on the vanilla renderer. |
+| Sodium 0.5.x (1.20.1 Fabric), Embeddium (1.20.1 Forge) | Supported, tested with Sodium 0.5.11. Water, vegetation sway and seasonal colours work as on the vanilla renderer. On 1.21.1 Sodium runs, but the water, sway and seasonal colours are not drawn on the terrain it renders. |
 | Iris with a shader pack | The pack is left in charge of water, sky and post-processing. Rain, snow, particles, footprints, fog distance and sound keep working. Not tested with a pack loaded. |
 | Biome and block mods | Biomes are classified from their tags, temperature and rainfall, and blocks from their tags and step sound, so modded sand, snow and mud take footprints. |
 
@@ -159,9 +161,9 @@ and draws the clouds with fewer slices, and each of them has its own switch.
 **Does it work with shader packs?** With a pack active the mod steps back and lets the pack draw water and sky.
 
 **The water is not see-through for me.** Check *Water Effects → Realistic water*, and that no resource pack replaces
-the terrain shaders. With Sodium you need a 0.5.x build.
+the terrain shaders. With Sodium you need a 0.5.x build on 1.20.1. On 26.2 and 26.3 the water is drawn by the game itself.
 
-**Can I use it in my modpack?** Yes. It is MIT-licensed and needs nothing beyond Fabric API.
+**Can I use it in my modpack?** Yes. It is MIT-licensed and needs nothing beyond Fabric API on Fabric (nothing at all on Forge and NeoForge).
 
 ![Gallery](https://raw.githubusercontent.com/MeherBenSalem/WeatherMod/main/marketing/images/header-gallery.png)
 

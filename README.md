@@ -1,6 +1,7 @@
 # Living World
 
-An environmental realism engine for Minecraft 1.20.1, for Fabric and for Forge. It replaces "weather as a toggle" with one
+An environmental realism engine for Minecraft 1.20.1 (Fabric and Forge) and 1.21.1, 26.2 and 26.3 (Fabric and
+NeoForge). It replaces "weather as a toggle" with one
 shared simulation — temperature, humidity, wind, precipitation, ground wetness, shelter — and lets every
 visual and audible effect read from it, so the world reacts as a whole:
 
@@ -36,32 +37,42 @@ vanilla renderer and with Sodium 0.5 (Fabric) or Embeddium 0.3 (Forge), whose te
 extends to do the same. Under an Iris or Oculus shader pack those three are off and the pack is left in
 charge. See [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
 
+Not every version can draw everything. On 1.21.1 the Sodium bridge is not available, so with Sodium installed
+the water shading, vegetation sway and seasonal foliage colours are missing from the terrain Sodium draws (the
+vanilla renderer is unaffected). On 26.2 and 26.3 the game's new renderer has no place for the mod's own shaders:
+the see-through water, volumetric clouds and cloud shadows, sky and fog tint, vegetation sway and seasonal foliage
+tint, the atmosphere pass (heat haze, mist, wet ground and puddles, light shafts, colour grading, bloom, film look,
+vignette, exposure adaptation), lens droplets and the temperature tint, lit footprints and tumbling dropped items
+are not drawn there. The simulation, weather, seasons, wind, rain and snow, particles, footprints, frost, sound,
+camera effects, commands and seasonal gameplay are the same on every version.
+
 > Status: a complete, buildable first release. What is done, partial and missing is listed honestly in
 > [docs/FEATURES.md](docs/FEATURES.md). Read "What has and has not been verified" below before judging it.
 
-## Requirements
+## Which jar do I download?
 
-| | Fabric | Forge |
-|---|---|---|
-| Minecraft | 1.20.1 | 1.20.1 |
-| Loader | Fabric Loader 0.15 or newer | Forge 47.2.0 or newer |
-| Required | Fabric API | nothing else |
-| Optional | Mod Menu (adds a settings button) | — (the mod list's *Config* button opens the settings) |
-| Java | 17 | 17 |
+| Minecraft | Loader | Jar | Also needed | Java |
+|---|---|---|---|---|
+| 1.20.1 | Fabric | `livingworld-fabric-1.20.1-1.0.0.jar` | Fabric API | 17 |
+| 1.20.1 | Forge | `livingworld-forge-1.20.1-1.0.0.jar` | — | 17 |
+| 1.21.1 | Fabric | `livingworld-fabric-1.21.1-1.0.0.jar` | Fabric API | 21 |
+| 1.21.1 | NeoForge | `livingworld-neoforge-1.21.1-1.0.0.jar` | — | 21 |
+| 26.2 | Fabric | `livingworld-fabric-26.2-1.0.0.jar` | Fabric API | 25 |
+| 26.2 | NeoForge | `livingworld-neoforge-26.2-1.0.0.jar` | — | 25 |
+| 26.3 | Fabric | `livingworld-fabric-26.3-1.0.0.jar` | Fabric API | 25 |
+| 26.3 | NeoForge | `livingworld-neoforge-26.3-1.0.0.jar` | — | 25 |
 
-Both jars are built from one code base and do the same things: everything the mod does lives in a module
-that knows nothing of either loader, and each loader gets a thin module that plugs it in (see
-[Source layout](#source-layout)). Why 1.20.1: it is the most widely modded modern version on both
-loaders and it runs on Java 17.
+Mod Menu is optional on Fabric (it adds a settings button); on Forge and NeoForge the mod list's *Config* button
+opens the settings. Each Fabric jar is for exactly its Minecraft version; the Forge and NeoForge jars accept that
+version's hotfixes only where they exist (`[1.20.1, 1.20.2)`, `[1.21.1, 1.21.2)`, `[26.2, 26.3)`, `[26.3, 26.4)`).
+
+Every jar is built from one code base per Minecraft version: everything the mod does lives in a module that knows
+nothing of the loader, and each loader gets a thin module that plugs it in (see [Source layout](#source-layout)).
 
 ## Install
 
-Build the jars (see [Building](#building)) and drop the one for your loader into `mods/`:
-
-| Loader | Jar | Also needed |
-|---|---|---|
-| Fabric | `fabric/build/libs/livingworld-fabric-1.20.1-1.0.0.jar` | Fabric API |
-| Forge | `forge/build/libs/livingworld-forge-1.20.1-1.0.0.jar` | — |
+Drop the jar for your Minecraft version and loader into `mods/` (build them yourself with
+[Building](#building); they land in `<minecraft>/<loader>/build/libs/`).
 
 It can be installed on the client only (works on any server, including vanilla), on both sides, or on a
 server only — see [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
@@ -219,7 +230,9 @@ Design decisions worth knowing:
 
 ### Source layout
 
-The project follows the [MultiLoader-Template](https://github.com/jaredlll08/MultiLoader-Template): a
+Each Minecraft version is its own folder (`1.20.1/`, `1.21.1/`, `26.2/`, `26.3/`); the paths below are inside
+one of them (the loader module is `forge` on 1.20.1 and `neoforge` on the others). The project follows the
+[MultiLoader-Template](https://github.com/jaredlll08/MultiLoader-Template): a
 `common` module with the mod itself, and one thin module per loader that compiles common's sources
 together with its own (so mixins get the right names for that loader) and ships common's resources.
 
@@ -267,28 +280,56 @@ name this one and never play it. A resource pack can add recordings for the bird
 
 ## Building
 
+Each Minecraft version is a separate MultiLoader Gradle workspace with its own wrapper. These are the only supported
+targets (the NightBeam convention): 8 jars per release, all with the same version.
+
+| Minecraft | Loaders | Java | Folder |
+| --- | --- | --- | --- |
+| 1.20.1 | Forge, Fabric | 17 bytecode (build on 21) | `1.20.1/{common,forge,fabric}` |
+| 1.21.1 | NeoForge, Fabric | 21 | `1.21.1/{common,neoforge,fabric}` |
+| 26.2 | NeoForge, Fabric | 25 | `26.2/{common,neoforge,fabric}` |
+| 26.3 | NeoForge, Fabric | 25 | `26.3/{common,neoforge,fabric}` |
+
 ```bash
-./gradlew build
+./gradlew buildAll             # every workspace, then the 8 loader jars into releases/
+cd 1.20.1 && ./gradlew build   # Gradle on Java 21 (Java 17 toolchain)
+cd 1.21.1 && ./gradlew build   # Java 21
+cd 26.3 && ./gradlew build     # Java 25 (the same for 26.2)
+cd 26.3 && ./gradlew :common:test   # unit tests
 ```
 
-This builds both jars, `fabric/build/libs/livingworld-fabric-1.20.1-1.0.0.jar` and
-`forge/build/libs/livingworld-forge-1.20.1-1.0.0.jar`. Gradle has to be started with a JDK 17
-(`JAVA_HOME`); the code itself is compiled for Java 17. Versions of Minecraft, the loaders and the
-optional mods are all in `gradle.properties`.
+The root build hands the 26.x workspaces `JAVA_HOME_25_X64` (or `-Pjava25Home=<jdk>`) and the others
+`JAVA_HOME_21_X64` (or `-Pjava21Home=<jdk>`); without them each workspace uses the current `JAVA_HOME`.
+Jars land in `<workspace>/<loader>/build/libs/livingworld-<loader>-<minecraft>-<version>.jar`. Every
+workspace's `gradle.properties` carries the same `version=` (`./gradlew checkVersions`; set it with
+`./gradlew syncVersion -PmodVersion=x.y.z`). `python3 scripts/check_targets.py workspaces` checks the targets, the
+shared version and the metadata ranges. Release notes for a version live in `patchnotes/<version>.md`.
+
+Inside a workspace (the 1.20.1 tasks are shown; `neoforge` takes the place of `forge` on 1.21.1, and the in-game
+scene run and the Sodium/Iris dev clients exist on 1.20.1 and 1.21.1 only):
 
 | Task | What it does |
 |---|---|
 | `gradlew build` | Compile all three modules, run the unit tests and the client-isolation check, package both jars |
 | `gradlew :fabric:build` / `gradlew :forge:build` | One loader only |
 | `gradlew :common:test` | Unit tests only |
-| `gradlew :fabric:runClient` / `gradlew :forge:runClient` | Dev client (Fabric uses the `run` folder at the root, Forge uses `forge/run`) |
+| `gradlew :fabric:runClient` / `gradlew :forge:runClient` | Dev client |
 | `gradlew :fabric:runServer` / `gradlew :forge:runServer` | Dev dedicated server |
 | `gradlew :fabric:runAutotest [-PlwScenes=desert,snow]` | Scripted in-game scene run (see Testing) |
 | `gradlew :forge:runAutotest [-PlwScenes=desert,snow]` | The same on Forge |
-| `gradlew :fabric:runAutotest -PlwCompat=sodium[,iris]` | With Sodium (and Iris) added to the Fabric dev client |
-| `gradlew :forge:runAutotest -PlwCompat=embeddium[,oculus]` | With Embeddium (and Oculus) added to the Forge dev client |
+| `gradlew :fabric:runAutotest -PlwCompat=sodium[,iris]` | With Sodium (and Iris) added to the Fabric dev client (1.20.1) |
+| `gradlew :forge:runAutotest -PlwCompat=embeddium[,oculus]` | With Embeddium (and Oculus) added to the Forge dev client (1.20.1) |
 | `gradlew :fabric:runAutotest -PlwScenes=marketing` | Captures the listing screenshots and clips (see [marketing/README.md](marketing/README.md)) |
 | `gradlew generateAssets` | Regenerate the textures |
+
+## Releasing
+
+CI (`.github/workflows/ci.yml`) builds all 8 jars on every push to `main` that touches the build. Publishing to
+Modrinth and CurseForge is `.github/workflows/publish.yml`, run by hand (`version`, `dry_run`) or by a `v*.*.*` tag;
+it never runs on a plain push. It refuses a second release of the mod on the same day (Africa/Tunis), takes the jars
+from `releases/`, the GitHub Release or a build from source, and fails unless exactly the 8 jars are found. It needs
+the secrets `MODRINTH_TOKEN`, `CURSEFORGE_TOKEN`, `CURSEFORGE_API_KEY` and the variables `MODRINTH_ID`, `CURSEFORGE_ID`. The project is not on Modrinth or CurseForge
+yet, so there is no fallback ID: the workflow stops before building, dry run included, until both variables are set.
 
 ## Testing
 
@@ -469,6 +510,14 @@ Not verified, and you should check before relying on it:
   out. **Rainbows** were seen once, faintly, in a staged scene.
 - **Half-resolution reflections** were asked for and not done: water is shaded while the terrain is
   drawn, so there is no reflection pass to shrink. Only the cloud layer has a half-resolution buffer.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Security
+
+See [.github/SECURITY.md](.github/SECURITY.md).
 
 ## Licence
 
