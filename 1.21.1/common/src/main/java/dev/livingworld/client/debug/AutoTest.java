@@ -607,7 +607,7 @@ public final class AutoTest {
                     } else if (r < 0.24f) {
                         world.setBlock(p, flowers[random.nextInt(flowers.length)].defaultBlockState(), 2);
                     } else if (r < 0.94f) {
-                        world.setBlock(p, net.minecraft.world.level.block.Blocks.GRASS.defaultBlockState(), 2);
+                        world.setBlock(p, net.minecraft.world.level.block.Blocks.SHORT_GRASS.defaultBlockState(), 2);
                     }
                     planted++;
                 }

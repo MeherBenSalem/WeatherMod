@@ -43,10 +43,24 @@ public abstract class ItemEntityRendererMixin extends EntityRenderer<ItemEntity>
         }
         matrices.pushPose();
         ItemPhysics.render(entity, tickDelta, matrices, consumers, light, this.itemRenderer, this.random,
-                ItemEntityRenderer.getRenderedAmount(entity.getItem().getCount()));
+                livingworld$renderedAmount(entity.getItem().getCount()));
         matrices.popPose();
         // The name tag, exactly as the vanilla renderer ends.
         super.render(entity, yaw, tickDelta, matrices, consumers, light);
         ci.cancel();
+    }
+
+    /** How many copies of the stack the vanilla renderer draws for this count (its own helper is protected). */
+    private static int livingworld$renderedAmount(int count) {
+        if (count > 48) {
+            return 5;
+        }
+        if (count > 32) {
+            return 4;
+        }
+        if (count > 16) {
+            return 3;
+        }
+        return count > 1 ? 2 : 1;
     }
 }

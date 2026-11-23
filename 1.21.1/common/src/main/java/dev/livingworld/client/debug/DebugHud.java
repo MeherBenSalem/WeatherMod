@@ -46,7 +46,7 @@ public final class DebugHud {
         OverlayRenderer.renderHudFallback(context);
         Font font = client.font;
 
-        if (config.enabled && config.temperatureHud && mode == Mode.OFF && !client.options.renderDebug) {
+        if (config.enabled && config.temperatureHud && mode == Mode.OFF && !client.getDebugOverlay().showDebugScreen()) {
             float felt = PlayerExposure.INSTANCE.feelsLikeC;
             String text = config.fahrenheit
                     ? String.format(Locale.ROOT, "%.0f°F", felt * 9f / 5f + 32f)
@@ -54,7 +54,7 @@ public final class DebugHud {
             int color = felt < 0f ? 0xFF9AD0FF : felt > 32f ? 0xFFFFB070 : 0xFFE8E8E8;
             context.drawString(font, text, 6, 6, color);
         }
-        if (config.enabled && config.seasonHud && e.seasonsActive && mode == Mode.OFF && !client.options.renderDebug) {
+        if (config.enabled && config.seasonHud && e.seasonsActive && mode == Mode.OFF && !client.getDebugOverlay().showDebugScreen()) {
             drawCalendar(context, font, e, 6, config.temperatureHud ? 19 : 6);
         }
         if (mode == Mode.OFF) {
