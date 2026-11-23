@@ -1,0 +1,25 @@
+{
+  "ambient_bed": {
+    "sounds": [
+      { "name": "livingworld:empty", "stream": true }
+    ]
+  },
+  "weather_bed": {
+    "sounds": [
+      { "name": "livingworld:empty", "stream": true }
+    ]
+  },
+  "wildlife.birds": {
+    "subtitle": "subtitles.livingworld.birds",
+    "sounds": []
+  },
+  "wildlife.frogs": {
+    "subtitle": "subtitles.livingworld.frogs",
+    "sounds": []
+  },
+  "one_shot": {
+    "sounds": [
+      { "name": "livingworld:empty", "stream": true }
+    ]
+  }
+}

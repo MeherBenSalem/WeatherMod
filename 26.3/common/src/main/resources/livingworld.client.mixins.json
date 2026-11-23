@@ -1,0 +1,15 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.livingworld.client.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "AbstractSoundInstanceAccessor",
+    "GameRendererMixin",
+    "SoundEngineMixin",
+    "WeatherEffectRendererMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

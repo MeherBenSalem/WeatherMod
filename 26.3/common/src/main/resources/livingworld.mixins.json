@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.livingworld.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "SeasonalGrowthMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
