@@ -1,0 +1,21 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.livingworld.client.mixin",
+  "refmap": "${mod_id}.refmap.json",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "AbstractSoundInstanceAccessor",
+    "ClientLevelMixin",
+    "CloudRenderMixin",
+    "FogRendererMixin",
+    "GameRendererMixin",
+    "ItemEntityRendererMixin",
+    "LevelRendererMixin",
+    "LiquidBlockRendererMixin",
+    "SoundEngineMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

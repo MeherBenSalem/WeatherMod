@@ -1,0 +1,150 @@
+# CI for Living World (NightBeam convention; based on Bosses' publisher-checks.yml and Wands' ci.yml).
+# Builds all 8 jars (1.20.1 Fabric + Forge; 1.21.1, 26.2, 26.3 Fabric + NeoForge), one job per Minecraft
+# workspace so every workspace reports its own compile errors, runs each workspace's unit tests (part of
+# `build`), checks that every workspace has the same version= and that the metadata ranges stay inside their
+# Minecraft line, checks the root aggregator (buildAll/dist) wiring, runs the publisher script tests (the
+# same-day guard and the jar-name detection the upload step uses), and checks the exact 8 jars at the end.
+# It never publishes anything.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "1.20.1/**"
+      - "1.21.1/**"
+      - "26.2/**"
+      - "26.3/**"
+      - "scripts/**"
+      - "build.gradle"
+      - "settings.gradle"
+      - "gradle.properties"
+      - "gradle/**"
+      - "gradlew"
+      - "gradlew.bat"
+      # Bundled into every jar by the workspaces' multiloader-common.gradle.
+      - "LICENSE"
+      - ".github/scripts/**"
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [20, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Check publisher syntax
+        run: |
+          for f in scripts/*.mjs .github/scripts/*.js; do node --check "$f"; done
+      - name: Test publisher scripts (same-day guard)
+        run: node --test scripts/*.test.mjs
+      # Jar name -> loader + Minecraft version, as the upload step reads it (calendar versions such as 26.2 must
+      # never fall back to 1.21.1).
+      - name: Test jar metadata detection
+        run: node .github/scripts/detect-jar-meta.test.js
+      - name: Check the 8 targets, one version and metadata ranges
+        run: python3 scripts/check_targets.py workspaces
+
+  aggregator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Root aggregator wiring (buildAll dry run, checkVersions)
+        run: |
+          chmod +x gradlew
+          ./gradlew -m buildAll --no-daemon
+          ./gradlew checkVersions --no-daemon
+
+  build:
+    name: build ${{ matrix.workspace }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - workspace: "1.20.1"
+            java: 21
+          - workspace: "1.21.1"
+            java: 21
+          - workspace: "26.2"
+            java: 25
+          - workspace: "26.3"
+            java: 25
+    steps:
+      - uses: actions/checkout@v4
+      # 17 is the 1.20.1 toolchain; 21 runs Gradle for 1.20.1/1.21.1; 26.x run Gradle on 25.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: |
+            17
+            25
+            21
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build ${{ matrix.workspace }} and run its unit tests
+        shell: bash
+        working-directory: ${{ matrix.workspace }}
+        run: |
+          set -euo pipefail
+          var="JAVA_HOME_${{ matrix.java }}_X64"
+          export JAVA_HOME="${!var}"
+          chmod +x gradlew
+          ./gradlew build --continue --no-daemon \
+            -Porg.gradle.java.installations.fromEnv=JAVA_HOME_17_X64,JAVA_HOME_21_X64,JAVA_HOME_25_X64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jars-${{ matrix.workspace }}
+          path: |
+            ${{ matrix.workspace }}/fabric/build/libs/livingworld-*.jar
+            ${{ matrix.workspace }}/forge/build/libs/livingworld-*.jar
+            ${{ matrix.workspace }}/neoforge/build/libs/livingworld-*.jar
+          if-no-files-found: error
+
+  jars:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: jars-*
+          path: built
+          merge-multiple: true
+      - name: Check the 8 jars
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(python3 scripts/check_targets.py version)"
+          mkdir -p flat
+          find built -name 'livingworld-*.jar' -exec cp -f {} flat/ \;
+          python3 scripts/check_targets.py jars --version "$version" --dir flat --list-file ci-jars.txt
+          mkdir -p ci-jars
+          xargs -a ci-jars.txt cp -f -t ci-jars/
+          # The upload step must be able to read loader + Minecraft version from every built jar name.
+          while IFS= read -r jar; do node .github/scripts/detect-jar-meta.js "$jar"; done < ci-jars.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: livingworld-jars
+          path: ci-jars/*.jar
+          if-no-files-found: error

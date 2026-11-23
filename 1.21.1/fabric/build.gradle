@@ -1,0 +1,53 @@
+plugins {
+    id 'multiloader-loader'
+    id 'fabric-loom'
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings loom.layered {
+        officialMojangMappings()
+        parchment("org.parchmentmc.data:parchment-${parchment_minecraft}:${parchment_version}@zip")
+    }
+    modImplementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_version}"
+    implementation group: 'com.google.code.findbugs', name: 'jsr305', version: '3.0.1'
+
+    modCompileOnly("com.terraformersmc:modmenu:${modmenu_version}") { transitive = false }
+}
+
+loom {
+    if (project(':common').file("src/main/resources/${mod_id}.accesswidener").exists()) {
+        accessWidenerPath.set(project(':common').file("src/main/resources/${mod_id}.accesswidener"))
+    }
+    mixin {
+        defaultRefmapName.set("${mod_id}.refmap.json")
+    }
+    runs {
+        client {
+            client()
+            setConfigName('Fabric Client')
+            ideConfigGenerated(true)
+            runDir('../run')
+            vmArgs '-Xmx3G'
+        }
+        server {
+            server()
+            setConfigName('Fabric Server')
+            ideConfigGenerated(true)
+            runDir('../run')
+        }
+        // `gradlew :fabric:runAutotest` boots a client, creates a throw-away world, walks through the
+        // scripted scenario list, writes screenshots + a report to run/livingworld-autotest and exits.
+        autotest {
+            client()
+            setConfigName('Fabric Autotest')
+            ideConfigGenerated(false)
+            runDir('../run')
+            vmArgs '-Xmx3G', '-Dlivingworld.autotest=true'
+            if (project.hasProperty('lwScenes')) {
+                vmArg "-Dlivingworld.autotest.only=${project.property('lwScenes')}"
+            }
+        }
+    }
+}

@@ -1,0 +1,22 @@
+{
+    "blend": {
+        "func": "add",
+        "srcrgb": "one",
+        "dstrgb": "zero"
+    },
+    "vertex": "livingworld:post",
+    "fragment": "livingworld:overlay",
+    "attributes": [
+        "Position",
+        "UV0"
+    ],
+    "samplers": [
+        { "name": "DiffuseSampler" },
+        { "name": "FrostSampler" },
+        { "name": "DropSampler" }
+    ],
+    "uniforms": [
+        { "name": "Lens", "type": "float", "count": 4, "values": [ 0.0, 0.0, 0.0, 1.7 ] },
+        { "name": "Tone", "type": "float", "count": 4, "values": [ 0.0, 0.0, 0.0, 0.0 ] }
+    ]
+}

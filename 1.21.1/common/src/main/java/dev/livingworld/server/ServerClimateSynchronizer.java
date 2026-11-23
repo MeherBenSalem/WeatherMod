@@ -1,0 +1,135 @@
+package dev.livingworld.server;
+
+import dev.livingworld.climate.SimulationOverrides;
+import dev.livingworld.config.ServerConfig;
+import dev.livingworld.net.LWNetworking;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.storage.ServerLevelData;
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * Owns the per-dimension {@link SimulationOverrides} and pushes them to clients when they change:
+ * on join, on dimension change, when a test command edits them and when the rain forecast moves.
+ */
+public final class ServerClimateSynchronizer {
+    private static final Map<ResourceKey<Level>, SimulationOverrides> STATE = new HashMap<>();
+    private static final int CHECK_INTERVAL = 40;
+
+    private ServerClimateSynchronizer() {
+    }
+
+    /** Forgets everything when the server stops, so the next world starts clean. */
+    public static void reset() {
+        STATE.clear();
+        weatherSeen = false;
+    }
+
+    public static SimulationOverrides get(ServerLevel world) {
+        return STATE.computeIfAbsent(world.dimension(), k -> new SimulationOverrides());
+    }
+
+    public static void sendTo(ServerPlayer player) {
+        SimulationOverrides state = get(player.serverLevel());
+        state.gameplayEffects = ServerConfig.get().temperatureEffects;
+        state.seasonDays = SeasonState.seasonDays();
+        state.seasonOffsetDays = SeasonState.get(player.getServer()).offsetDays;
+        LWNetworking.sendState(player, state);
+    }
+
+    /** Pushes the current state of a dimension to everyone in it. */
+    public static void broadcast(ServerLevel world) {
+        SimulationOverrides state = get(world);
+        for (ServerPlayer player : world.players()) {
+            LWNetworking.sendState(player, state);
+        }
+    }
+
+    /** Pushes a change to the calendar (a command, an edited config) to every player at once. */
+    public static void refreshSeasons(net.minecraft.server.MinecraftServer server) {
+        for (ServerLevel world : server.getAllLevels()) {
+            SimulationOverrides state = get(world);
+            state.seasonDays = SeasonState.seasonDays();
+            state.seasonOffsetDays = SeasonState.get(server).offsetDays;
+            broadcast(world);
+        }
+    }
+
+    private static boolean wasRaining;
+    private static boolean wasThundering;
+    private static boolean weatherSeen;
+
+    /**
+     * When a storm ends, vanilla draws a random dry spell before the next one. With a storm frequency
+     * other than 1 that freshly drawn delay is rescaled once, at the moment the weather clears.
+     */
+    private static void applyStormFrequency(ServerLevelData properties) {
+        boolean raining = properties.isRaining();
+        boolean thundering = properties.isThundering();
+        float frequency = ServerConfig.get().stormFrequency;
+        if (weatherSeen && frequency != 1f) {
+            if (wasRaining && !raining && properties.getRainTime() > 0) {
+                properties.setRainTime(Math.max(200, (int) (properties.getRainTime() / frequency)));
+            }
+            if (wasThundering && !thundering && properties.getThunderTime() > 0) {
+                properties.setThunderTime(Math.max(200, (int) (properties.getThunderTime() / frequency)));
+            }
+        }
+        weatherSeen = true;
+        wasRaining = raining;
+        wasThundering = thundering;
+    }
+
+    /** Called at the end of every tick of every dimension. */
+    public static void tick(ServerLevel world) {
+        long time = world.getGameTime();
+        if (time % CHECK_INTERVAL != 0L) {
+            return;
+        }
+        SimulationOverrides state = get(world);
+        boolean dirty = false;
+
+        if (state.weather != null && time >= state.weatherUntil) {
+            state.weather = null;
+            dirty = true;
+        }
+
+        boolean gameplay = ServerConfig.get().temperatureEffects;
+        if (gameplay != state.gameplayEffects) {
+            state.gameplayEffects = gameplay;
+            dirty = true;
+        }
+
+        float seasonDays = SeasonState.seasonDays();
+        float seasonOffset = SeasonState.get(world.getServer()).offsetDays;
+        if (seasonDays != state.seasonDays || seasonOffset != state.seasonOffsetDays) {
+            state.seasonDays = seasonDays;
+            state.seasonOffsetDays = seasonOffset;
+            dirty = true;
+        }
+
+        long forecast = -1L;
+        boolean overworld = world.dimension() == Level.OVERWORLD;
+        if (overworld) {
+            applyStormFrequency(world.getServer().getWorldData().overworldData());
+        }
+        if (ServerConfig.get().syncForecast && world.dimensionType().hasSkyLight() && !world.dimensionType().hasCeiling()) {
+            ServerLevelData properties = world.getServer().getWorldData().overworldData();
+            if (!properties.isRaining() && properties.getClearWeatherTime() <= 0 && properties.getRainTime() > 0) {
+                forecast = time + properties.getRainTime();
+            }
+        }
+        // The countdown normally ticks in step with world time; only resend when the plan itself changes.
+        if ((forecast < 0L) != (state.rainStartTime < 0L) || Math.abs(forecast - state.rainStartTime) > CHECK_INTERVAL * 2L) {
+            state.rainStartTime = forecast;
+            dirty = true;
+        }
+
+        if (dirty) {
+            broadcast(world);
+        }
+    }
+}

@@ -1,0 +1,52 @@
+plugins {
+    id 'multiloader-loader'
+    id 'net.neoforged.moddev'
+}
+
+neoForge {
+    version = neoforge_version
+    def at = project(':common').file('src/main/resources/META-INF/accesstransformer.cfg')
+    if (at.exists()) {
+        accessTransformers.from(at.absolutePath)
+    }
+    parchment {
+        minecraftVersion = parchment_minecraft
+        mappingsVersion = parchment_version
+    }
+    runs {
+        configureEach {
+            ideName = "NeoForge ${it.name.capitalize()} (${project.path})"
+        }
+        client {
+            client()
+            gameDirectory = project.file('run')
+            jvmArgument '-Xmx3G'
+        }
+        server {
+            server()
+            gameDirectory = project.file('run')
+        }
+        // `gradlew :neoforge:runAutotest` is the NeoForge twin of `:fabric:runAutotest`.
+        autotest {
+            client()
+            gameDirectory = project.file('run')
+            jvmArgument '-Xmx3G'
+            systemProperty 'livingworld.autotest', 'true'
+            if (project.hasProperty('lwScenes')) {
+                systemProperty 'livingworld.autotest.only', project.property('lwScenes').toString()
+            }
+        }
+    }
+    mods {
+        "${mod_id}" {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+processResources {
+    // NeoForge shows the logo from the root of the jar; it is the same picture Fabric uses as the mod icon.
+    from(project(':common').file("src/main/resources/assets/${mod_id}/icon.png")) {
+        rename { "${mod_id}.png" }
+    }
+}

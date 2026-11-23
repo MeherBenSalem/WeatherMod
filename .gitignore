@@ -1,28 +1,73 @@
 # Gradle
 .gradle/
 build/
-out/
+!gradle/wrapper/gradle-wrapper.jar
 
-# Dev runs (run/ is the Fabric client, forge/run/ the Forge one)
-run/
-runs/
-remappedSrc/
-logs/
-*.log
-hs_err_pid*
-
-# IDEs
-.idea/
-*.iml
-*.ipr
-*.iws
-.vscode/
+# Eclipse
+.metadata/
+.settings/
 .classpath
 .project
-.settings/
 bin/
-*.launch
 
-# OS
-Thumbs.db
+# IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+
+# VS Code / Cursor
+.vscode/
+*.code-workspace
+.cursor/
+
+# MacOS
 .DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Logs
+logs/
+*.log
+build_log.txt
+build_output.txt
+dep_warning.txt
+debug.log
+
+# Run folders
+run/
+runs/
+/test/
+
+# Archives / built artifacts (do not commit jars, except the release jars the publish workflow uploads)
+*.jar
+!releases/*.jar
+*.war
+*.zip
+*.tar
+*.tar.gz
+dist/
+
+# Keep the Gradle wrapper jar
+!**/gradle/wrapper/gradle-wrapper.jar
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Temp
+input.txt
+output.txt
+
+# Python
+__pycache__/
+
+# Living World extras (Fabric dev remap output, JVM crash dumps, Eclipse launch configs)
+remappedSrc/
+hs_err_pid*
+*.launch
