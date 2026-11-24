@@ -252,7 +252,7 @@ together with its own (so mixins get the right names for that loader) and ships 
 | `forge/src/main/java/dev/livingworld/forge` | Forge: the `@Mod` class that forwards Forge's events, the network channel, sound and model hooks, the mixins into Embeddium |
 | `buildSrc` | The two Gradle convention plugins every module applies (`multiloader-common`, `multiloader-loader`) |
 | `docs/sample-pack-template` | A resource pack to fill with recorded birds and frogs |
-| `marketing` | Listing pages and artwork for CurseForge and Modrinth, and how they were made |
+| `marketing` | Listing page and artwork for CurseForge, and how they were made |
 
 Adding a feature means writing it in `common`. A loader module only changes when the feature needs
 something from the loader that the common code does not already get: a new event is forwarded from both
@@ -325,11 +325,12 @@ scene run and the Sodium/Iris dev clients exist on 1.20.1 and 1.21.1 only):
 ## Releasing
 
 CI (`.github/workflows/ci.yml`) builds all 8 jars on every push to `main` that touches the build. Publishing to
-Modrinth and CurseForge is `.github/workflows/publish.yml`, run by hand (`version`, `dry_run`) or by a `v*.*.*` tag;
+CurseForge is `.github/workflows/publish.yml`, run by hand (`version`, `dry_run`) or by a `v*.*.*` tag;
 it never runs on a plain push. It refuses a second release of the mod on the same day (Africa/Tunis), takes the jars
 from `releases/`, the GitHub Release or a build from source, and fails unless exactly the 8 jars are found. It needs
-the secrets `MODRINTH_TOKEN`, `CURSEFORGE_TOKEN`, `CURSEFORGE_API_KEY` and the variables `MODRINTH_ID`, `CURSEFORGE_ID`. The project is not on Modrinth or CurseForge
-yet, so there is no fallback ID: the workflow stops before building, dry run included, until both variables are set.
+the secrets `CURSEFORGE_TOKEN` (upload token) and `CURSEFORGE_API_KEY` (Core API key) and the variable
+`CURSEFORGE_ID`. NightBeam publishes to CurseForge only. The project is not on CurseForge yet, so there is no
+fallback ID: the workflow stops before building, dry run included, until the variable is set.
 
 ## Testing
 

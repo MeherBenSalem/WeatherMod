@@ -1,10 +1,10 @@
 # Marketing
 
-Listing copy and artwork for CurseForge and Modrinth. Nothing here ships in the mod jar.
+Listing copy and artwork for CurseForge (NightBeam publishes to CurseForge only). Nothing here ships in the mod jar.
 
 | Path | What it is |
 |------|------------|
-| `curseforge/description.md` | The project description (Markdown; also works on Modrinth). Images load from this repo's `main` branch. |
+| `curseforge/description.md` | The project description (Markdown). Images load from this repo's `main` branch. |
 | `curseforge/summary.txt` | The one-line summary (the limit is 250 characters). |
 | `images/banner.png` | 1800×600 header banner. |
 | `images/icon.png` | 512×512 project icon: the mod's in-jar icon (`common/src/main/resources/assets/livingworld/icon.png`, 128×128) redrawn at listing size. |
@@ -26,8 +26,8 @@ blue for winter.
 
 - **The images load from `raw.githubusercontent.com/MeherBenSalem/WeatherMod/main/marketing/images/...`.** That only
   works for a **public** repository with this folder on `main`. While the repository is private, every image in the
-  description is a broken link: either make the repository public, or upload the images to the CurseForge and
-  Modrinth galleries and replace each URL in `description.md`.
+  description is a broken link: either make the repository public, or upload the images to the CurseForge
+  gallery and replace each URL in `description.md`.
 - The **Docs** link in the description points at `https://nightbeam.dev/docs/living-world`. That page has to exist,
   or the link has to go.
 - The description says the mod is **MIT**-licensed (it is: see `LICENSE`) and needs only Fabric API on Fabric (nothing on Forge and NeoForge).
